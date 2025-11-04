@@ -1,0 +1,18 @@
+0 verbose cli /opt/homebrew/Cellar/node@20/20.19.2/bin/node /opt/homebrew/Cellar/node@20/20.19.2/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.8.2
+2 info using node@v20.19.2
+3 silly config load:file:/opt/homebrew/Cellar/node@20/20.19.2/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/applem2/projects/Unhabit/backend/.npmrc
+5 silly config load:file:/Users/applem2/.npmrc
+6 silly config load:file:/opt/homebrew/etc/npmrc
+7 verbose title npm exec tsx src/server.ts
+8 verbose argv "exec" "--yes" "--cache" "./npm-cache" "--" "tsx" "src/server.ts"
+9 verbose logfile logs-max:10 dir:/Users/applem2/projects/Unhabit/backend/npm-cache/_logs/2025-10-31T14_37_21_607Z-
+10 verbose logfile /Users/applem2/projects/Unhabit/backend/npm-cache/_logs/2025-10-31T14_37_21_607Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /Users/applem2/projects/Unhabit/backend
+13 verbose os Darwin 24.5.0
+14 verbose node v20.19.2
+15 verbose npm  v10.8.2
+16 verbose exit 1
+17 verbose code 1
