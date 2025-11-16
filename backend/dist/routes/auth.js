@@ -1,41 +1,209 @@
 import { Router } from "express";
 import { z } from "zod";
 import * as Auth from "../services/auth.service.js";
+import { requireAuth } from "../middlewares/auth.js";
 const r = Router();
-r.post("/register", async (req, res) => {
-    const schema = z.object({
-        email: z.string().email(),
-        password: z.string().min(8),
-        displayName: z.string().optional(),
-    });
-    const data = schema.parse(req.body);
-    const user = await Auth.register(data.email, data.password, data.displayName);
-    res.status(201).json({ userId: user.id });
+/**
+ * POST /api/auth/register
+ * Register a new user (backend admin creation)
+ * Frontend should typically use Supabase client directly
+ */
+r.post("/register", async (req, res, next) => {
+    try {
+        const schema = z.object({
+            email: z.string().email(),
+            password: z.string().min(8),
+            full_name: z.string().optional(),
+        });
+        const data = schema.parse(req.body);
+        const result = await Auth.register(data.email, data.password, data.full_name ? { full_name: data.full_name } : undefined);
+        res.status(201).json({
+            success: true,
+            user: result.user,
+            message: "User registered successfully. Please check email for verification.",
+        });
+    }
+    catch (error) {
+        next(error);
+    }
 });
-r.post("/login", async (req, res) => {
-    const schema = z.object({
-        email: z.string().email(),
-        password: z.string().min(8),
-    });
-    const { email, password } = schema.parse(req.body);
-    const { user, accessToken, refreshToken } = await Auth.login(email, password);
-    res.json({
-        user: { id: user.id, email: user.email },
-        accessToken,
-        refreshToken,
-    });
+/**
+ * POST /api/auth/login
+ * Login with email/password (backend proxy)
+ * Frontend should use supabase.auth.signInWithPassword() directly
+ */
+r.post("/login", async (req, res, next) => {
+    try {
+        const schema = z.object({
+            email: z.string().email(),
+            password: z.string().min(8),
+        });
+        const { email, password } = schema.parse(req.body);
+        const result = await Auth.adminLogin(email, password);
+        res.json({
+            success: true,
+            user: {
+                id: result.user.id,
+                email: result.user.email,
+                created_at: result.user.created_at,
+            },
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+            expires_in: result.session?.expires_in,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
 });
-r.post("/refresh", async (req, res) => {
-    const schema = z.object({ refreshToken: z.string() });
-    const { refreshToken } = schema.parse(req.body);
-    const { accessToken } = await Auth.rotate(refreshToken);
-    res.json({ accessToken });
+/**
+ * POST /api/auth/verify-email
+ * Verify email with OTP token
+ */
+r.post("/verify-email", async (req, res, next) => {
+    try {
+        const schema = z.object({
+            email: z.string().email(),
+            token: z.string(),
+        });
+        const { email, token } = schema.parse(req.body);
+        const result = await Auth.verifyEmail(email, token);
+        res.json({
+            success: true,
+            user: result.user,
+            session: result.session,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
 });
-r.post("/logout", async (req, res) => {
-    const schema = z.object({ refreshToken: z.string() });
-    const { refreshToken } = schema.parse(req.body);
-    const out = await Auth.logout(refreshToken);
-    res.json(out);
+/**
+ * POST /api/auth/forgot-password
+ * Send password reset email
+ */
+r.post("/forgot-password", async (req, res, next) => {
+    try {
+        const schema = z.object({
+            email: z.string().email(),
+        });
+        const { email } = schema.parse(req.body);
+        await Auth.sendPasswordReset(email);
+        res.json({
+            success: true,
+            message: "Password reset email sent if account exists",
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/auth/reset-password
+ * Reset password with new password (requires auth)
+ */
+r.post("/reset-password", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            new_password: z.string().min(8),
+        });
+        const { new_password } = schema.parse(req.body);
+        await Auth.updatePassword(req.user.id, new_password);
+        res.json({
+            success: true,
+            message: "Password updated successfully",
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/auth/me
+ * Get current user profile
+ */
+r.get("/me", requireAuth, async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        // Get user from Supabase
+        const user = await Auth.getUserById(userId);
+        // Get profile from Prisma
+        const profile = await Auth.getProfile(userId);
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                email: user.email,
+                created_at: user.created_at,
+                last_sign_in_at: user.last_sign_in_at,
+            },
+            profile,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/auth/profile
+ * Update user profile
+ */
+r.put("/profile", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            full_name: z.string().optional(),
+            avatar_url: z.string().url().optional(),
+            timezone: z.string().optional(),
+            locale: z.string().optional(),
+        });
+        const data = schema.parse(req.body);
+        const profileData = {
+            full_name: data.full_name ?? undefined,
+            avatar_url: data.avatar_url ?? undefined,
+            timezone: data.timezone ?? undefined,
+            locale: data.locale ?? undefined,
+        };
+        const profile = await Auth.createOrUpdateProfile(req.user.id, profileData);
+        res.json({
+            success: true,
+            profile,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/auth/onboarded
+ * Mark user as onboarded
+ */
+r.post("/onboarded", requireAuth, async (req, res, next) => {
+    try {
+        const profile = await Auth.markOnboarded(req.user.id);
+        res.json({
+            success: true,
+            profile,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * DELETE /api/auth/account
+ * Delete user account
+ */
+r.delete("/account", requireAuth, async (req, res, next) => {
+    try {
+        await Auth.deleteUser(req.user.id);
+        res.json({
+            success: true,
+            message: "Account deleted successfully",
+        });
+    }
+    catch (error) {
+        next(error);
+    }
 });
 export default r;
 //# sourceMappingURL=auth.js.map

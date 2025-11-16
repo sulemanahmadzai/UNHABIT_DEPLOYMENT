@@ -1,14 +1,34 @@
 // src/lib/services.ts
-import { prisma } from "./prisma";
+import { prisma } from "../db/prisma.js";
 import { createClient } from "@supabase/supabase-js";
 
 export const db = prisma;
 
-export const supabase = createClient(
+// Anon client - for frontend (public operations)
+export const supabaseAnon = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
+  process.env.SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  }
 );
 
+// Admin client - for backend (bypasses RLS, full access)
+export const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  }
+);
 
-
-
+// Default export for convenience
+export const supabase = supabaseAnon;
