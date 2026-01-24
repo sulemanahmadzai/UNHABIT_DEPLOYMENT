@@ -1,12 +1,50 @@
 import { Router } from "express";
 import auth from "./auth.js";
 import health from "./health.js";
+import habits from "./habits.js";
+import journeys from "./journeys.js";
+import progress from "./progress.js";
+import analytics from "./analytics.js";
 import ai from "./ai.js";
+import aiDiagnostics from "./ai-diagnostics.js";
+import notifications from "./notifications.js";
+import coach from "./coach.js";
+import rewards from "./rewards.js";
+import settings from "./settings.js";
+import buddies from "./buddies.js";
 import swaggerRouter from "../docs/swagger.js";
+// New routes
+import admin from "./admin.js";
+import home from "./home.js";
+import streaks from "./streaks.js";
+import leaderboard from "./leaderboard.js";
+import focus from "./focus.js";
+import recovery from "./recovery.js";
+import share from "./share.js";
+import challenges from "./challenges.js";
 
 const r = Router();
 r.use("/auth", auth);
 r.use("/health", health);
+r.use("/habits", habits);
+r.use("/journeys", journeys);
+r.use("/progress", progress);
+r.use("/analytics", analytics);
 r.use("/ai", ai);
+r.use("/ai-diagnostics", aiDiagnostics);
+r.use("/notifications", notifications);
+r.use("/coach", coach);
+r.use("/rewards", rewards);
+r.use("/settings", settings);
+r.use("/buddies", buddies);
 r.use("/docs", swaggerRouter); // Swagger UI
+// New routes
+r.use("/admin", admin);
+r.use("/home", home);
+r.use("/streaks", streaks);
+r.use("/leaderboard", leaderboard);
+r.use("/focus", focus);
+r.use("/recovery", recovery);
+r.use("/share", share);
+r.use("/challenges", challenges);
 export default r;

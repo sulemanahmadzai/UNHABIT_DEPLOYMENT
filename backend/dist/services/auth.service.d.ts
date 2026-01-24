@@ -28,6 +28,19 @@ export declare function adminLogin(email: string, password: string): Promise<{
     access_token: string;
     refresh_token: string;
 }>;
+type OAuthProvider = "google" | "apple";
+/**
+ * Handle OAuth login by exchanging a provider id_token with Supabase
+ */
+export declare function loginWithOAuth(provider: OAuthProvider, params: {
+    idToken: string;
+    nonce?: string | undefined;
+}): Promise<{
+    user: import("@supabase/auth-js").User;
+    session: import("@supabase/auth-js").Session;
+    access_token: string;
+    refresh_token: string;
+}>;
 /**
  * Verify a user's email using OTP
  */
@@ -103,4 +116,5 @@ export declare function markOnboarded(userId: string): Promise<{
     created_at: Date;
     updated_at: Date;
 }>;
+export {};
 //# sourceMappingURL=auth.service.d.ts.map

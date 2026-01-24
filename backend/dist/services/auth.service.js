@@ -1,5 +1,4 @@
-import { supabaseAdmin } from "../lib/services.js";
-import { db } from "../lib/services.js";
+import { supabaseAdmin, supabase, db } from "../lib/services.js";
 /**
  * Auth Service - Handles Supabase authentication and profile syncing
  *
@@ -54,6 +53,35 @@ export async function adminLogin(email, password) {
         session: data.session,
         access_token: data.session?.access_token,
         refresh_token: data.session?.refresh_token,
+    };
+}
+/**
+ * Handle OAuth login by exchanging a provider id_token with Supabase
+ */
+export async function loginWithOAuth(provider, params) {
+    const { data, error } = await supabase.auth.signInWithIdToken({
+        provider,
+        token: params.idToken,
+        ...(params.nonce && { nonce: params.nonce }),
+    });
+    if (error) {
+        throw new Error(`OAuth login failed (${provider}): ${error.message}`);
+    }
+    if (!data.user || !data.session) {
+        throw new Error("OAuth login failed: missing session");
+    }
+    await createOrUpdateProfile(data.user.id, {
+        full_name: data.user.user_metadata?.full_name ??
+            data.user.user_metadata?.name ??
+            undefined,
+        avatar_url: data.user.user_metadata?.avatar_url,
+        email: data.user.email ?? undefined,
+    });
+    return {
+        user: data.user,
+        session: data.session,
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
     };
 }
 /**

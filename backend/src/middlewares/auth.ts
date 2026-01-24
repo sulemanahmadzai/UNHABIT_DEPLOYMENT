@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { supabaseAdmin } from "../lib/services.js";
+import { supabaseAdmin, prisma } from "../lib/services.js";
 
 // Extend Express Request type to include user
 declare global {
@@ -10,6 +10,7 @@ declare global {
         email?: string | undefined;
         role?: string | undefined;
         aud?: string | undefined;
+        appRole?: "user" | "admin" | undefined;
       };
     }
   }
@@ -96,3 +97,50 @@ export async function optionalAuth(
     next();
   }
 }
+
+/**
+ * Middleware to require admin role
+ * Must be used after requireAuth
+ */
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
+      });
+    }
+
+    // Check profile for admin role
+    const profile = await prisma.profiles.findUnique({
+      where: { user_id: req.user.id },
+      select: { role: true },
+    });
+
+    if (!profile || profile.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        error: "Admin access required",
+        message: "You do not have permission to access this resource",
+      });
+    }
+
+    req.user.appRole = "admin";
+    next();
+  } catch (err) {
+    console.error("Admin middleware error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to verify admin status",
+    });
+  }
+}
+
+/**
+ * Combined middleware for routes that require both auth and admin
+ */
+export const requireAuthAndAdmin = [requireAuth, requireAdmin];

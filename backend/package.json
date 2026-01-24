@@ -12,7 +12,10 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "test": "echo \"(no tests yet)\" && exit 0"
+    "test": "tsx tests/run-all-tests.ts",
+    "test:watch": "tsx watch tests/run-all-tests.ts",
+    "test:admin": "tsx tests/test-admin.ts",
+    "test:buddies": "tsx tests/test-buddies.ts"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +25,7 @@
     "@prisma/client": "^6.18.0",
     "@supabase-js/source": "github:supabase/supabase-js",
     "@supabase/supabase-js": "^2.80.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

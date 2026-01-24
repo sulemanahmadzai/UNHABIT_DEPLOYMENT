@@ -1,12 +1,30 @@
 import { Router } from "express";
 import auth from "./auth.js";
 import health from "./health.js";
+import habits from "./habits.js";
+import journeys from "./journeys.js";
+import progress from "./progress.js";
+import analytics from "./analytics.js";
 import ai from "./ai.js";
+import notifications from "./notifications.js";
+import coach from "./coach.js";
+import rewards from "./rewards.js";
+import settings from "./settings.js";
+import buddies from "./buddies.js";
 import swaggerRouter from "../docs/swagger.js";
 const r = Router();
 r.use("/auth", auth);
 r.use("/health", health);
+r.use("/habits", habits);
+r.use("/journeys", journeys);
+r.use("/progress", progress);
+r.use("/analytics", analytics);
 r.use("/ai", ai);
+r.use("/notifications", notifications);
+r.use("/coach", coach);
+r.use("/rewards", rewards);
+r.use("/settings", settings);
+r.use("/buddies", buddies);
 r.use("/docs", swaggerRouter); // Swagger UI
 export default r;
 //# sourceMappingURL=index.js.map

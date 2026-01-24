@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as Auth from "../services/auth.service.js";
 import { requireAuth } from "../middlewares/auth.js";
 const r = Router();
+const oauthProviderSchema = z.enum(["google", "apple"]);
 /**
  * POST /api/auth/register
  * Register a new user (backend admin creation)
@@ -42,6 +43,39 @@ r.post("/login", async (req, res, next) => {
         const result = await Auth.adminLogin(email, password);
         res.json({
             success: true,
+            user: {
+                id: result.user.id,
+                email: result.user.email,
+                created_at: result.user.created_at,
+            },
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+            expires_in: result.session?.expires_in,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/auth/oauth/:provider
+ * Complete OAuth login by exchanging provider id_token for Supabase session
+ */
+r.post("/oauth/:provider", async (req, res, next) => {
+    try {
+        const provider = oauthProviderSchema.parse(req.params.provider);
+        const schema = z.object({
+            id_token: z.string(),
+            nonce: z.string().optional(),
+        });
+        const { id_token, nonce } = schema.parse(req.body);
+        const result = await Auth.loginWithOAuth(provider, {
+            idToken: id_token,
+            nonce: nonce,
+        });
+        res.json({
+            success: true,
+            provider,
             user: {
                 id: result.user.id,
                 email: result.user.email,

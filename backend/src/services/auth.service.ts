@@ -1,5 +1,4 @@
-import { supabaseAdmin } from "../lib/services.js";
-import { db } from "../lib/services.js";
+import { supabaseAdmin, supabase, db } from "../lib/services.js";
 
 /**
  * Auth Service - Handles Supabase authentication and profile syncing
@@ -59,7 +58,10 @@ export async function adminLogin(email: string, password: string) {
   });
 
   if (error) {
-    throw new Error(`Login failed: ${error.message}`);
+    const authError: any = new Error(`Login failed: ${error.message}`);
+    authError.status = 401; // Set status code for error handler
+    authError.statusCode = 401;
+    throw authError;
   }
 
   return {
@@ -67,6 +69,46 @@ export async function adminLogin(email: string, password: string) {
     session: data.session,
     access_token: data.session?.access_token,
     refresh_token: data.session?.refresh_token,
+  };
+}
+
+type OAuthProvider = "google" | "apple";
+
+/**
+ * Handle OAuth login by exchanging a provider id_token with Supabase
+ */
+export async function loginWithOAuth(
+  provider: OAuthProvider,
+  params: { idToken: string; nonce?: string | undefined }
+) {
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider,
+    token: params.idToken,
+    ...(params.nonce && { nonce: params.nonce }),
+  });
+
+  if (error) {
+    throw new Error(`OAuth login failed (${provider}): ${error.message}`);
+  }
+
+  if (!data.user || !data.session) {
+    throw new Error("OAuth login failed: missing session");
+  }
+
+  await createOrUpdateProfile(data.user.id, {
+    full_name:
+      (data.user.user_metadata as Record<string, any>)?.full_name ??
+      (data.user.user_metadata as Record<string, any>)?.name ??
+      undefined,
+    avatar_url: (data.user.user_metadata as Record<string, any>)?.avatar_url,
+    email: data.user.email ?? undefined,
+  });
+
+  return {
+    user: data.user,
+    session: data.session,
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
   };
 }
 
@@ -214,4 +256,31 @@ export async function markOnboarded(userId: string) {
   });
 
   return profile;
+}
+
+/**
+ * Refresh access token using refresh token
+ */
+export async function refreshSession(refreshToken: string) {
+  const { data, error } = await supabaseAdmin.auth.refreshSession({
+    refresh_token: refreshToken,
+  });
+
+  if (error) {
+    throw new Error(`Token refresh failed: ${error.message}`);
+  }
+
+  if (!data.session) {
+    throw new Error("Failed to refresh session");
+  }
+
+  return {
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    expires_in: data.session.expires_in,
+    user: {
+      id: data.user?.id,
+      email: data.user?.email,
+    },
+  };
 }

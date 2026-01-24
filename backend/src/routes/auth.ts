@@ -4,6 +4,7 @@ import * as Auth from "../services/auth.service.js";
 import { requireAuth } from "../middlewares/auth.js";
 
 const r = Router();
+const oauthProviderSchema = z.enum(["google", "apple"]);
 
 /**
  * POST /api/auth/register
@@ -28,7 +29,15 @@ r.post("/register", async (req, res, next) => {
       user: result.user,
       message: "User registered successfully. Please check email for verification.",
     });
-  } catch (error) {
+  } catch (error: any) {
+    // If it's a ZodError, it will be handled by error handler
+    // But we can also handle it here for clarity
+    if (error.name === 'ZodError' || error.issues) {
+      return res.status(400).json({
+        success: false,
+        error: `Validation error: ${error.issues?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || error.message}`,
+      });
+    }
     next(error);
   }
 });
@@ -50,6 +59,49 @@ r.post("/login", async (req, res, next) => {
     
     res.json({
       success: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        created_at: result.user.created_at,
+      },
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      expires_in: result.session?.expires_in,
+    });
+  } catch (error: any) {
+    // Handle Zod validation errors
+    if (error.name === 'ZodError' || error.issues) {
+      return res.status(400).json({
+        success: false,
+        error: `Validation error: ${error.issues?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || error.message}`,
+      });
+    }
+    // Auth errors should have status set by service
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/oauth/:provider
+ * Complete OAuth login by exchanging provider id_token for Supabase session
+ */
+r.post("/oauth/:provider", async (req, res, next) => {
+  try {
+    const provider = oauthProviderSchema.parse(req.params.provider);
+    const schema = z.object({
+      id_token: z.string(),
+      nonce: z.string().optional(),
+    });
+    const { id_token, nonce } = schema.parse(req.body);
+
+    const result = await Auth.loginWithOAuth(provider, {
+      idToken: id_token,
+      nonce: nonce,
+    });
+
+    res.json({
+      success: true,
+      provider,
       user: {
         id: result.user.id,
         email: result.user.email,
@@ -221,6 +273,48 @@ r.delete("/account", requireAuth, async (req, res, next) => {
     res.json({
       success: true,
       message: "Account deleted successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/refresh
+ * Refresh access token using refresh token
+ */
+r.post("/refresh", async (req, res, next) => {
+  try {
+    const schema = z.object({
+      refresh_token: z.string(),
+    });
+    const { refresh_token } = schema.parse(req.body);
+
+    const result = await Auth.refreshSession(refresh_token);
+
+    res.json({
+      success: true,
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      expires_in: result.expires_in,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Logout user (invalidate session)
+ */
+r.post("/logout", requireAuth, async (req, res, next) => {
+  try {
+    // For Supabase, logout is typically handled client-side
+    // This endpoint can be used to clear server-side session if needed
+    // For now, just return success
+    res.json({
+      success: true,
+      message: "Logged out successfully",
     });
   } catch (error) {
     next(error);
