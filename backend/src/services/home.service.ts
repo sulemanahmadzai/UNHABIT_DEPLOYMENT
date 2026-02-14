@@ -50,15 +50,25 @@ export async function getDashboard(userId: string) {
   ]);
 
   // Calculate current day number
-  let currentDayNumber = 0;
+  let currentDayNumber = 1; // Default to 1 since journey_days are 1-indexed
   let journeyProgress = 0;
   let habitHealth = 0;
 
   if (activeJourney && activeJourney.start_date) {
+    // Normalize start_date to midnight for accurate comparison
     const startDate = new Date(activeJourney.start_date);
-    const diffTime = Math.abs(today.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    currentDayNumber = Math.min(diffDays + 1, activeJourney.planned_days);
+    startDate.setHours(0, 0, 0, 0);
+    
+    // Calculate days elapsed (don't use Math.abs to detect future dates)
+    const diffTime = today.getTime() - startDate.getTime();
+    
+    // Guard against future start dates
+    if (diffTime >= 0) {
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      currentDayNumber = Math.min(diffDays + 1, activeJourney.planned_days);
+    }
+    // If start_date is in the future, currentDayNumber stays at 1
+    
     journeyProgress = Math.round((currentDayNumber / activeJourney.planned_days) * 100);
     
     // Calculate habit health based on completed tasks
