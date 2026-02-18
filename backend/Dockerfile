@@ -14,6 +14,9 @@ COPY tsconfig.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY src ./src
 
+# Copy OpenAPI spec (used by Swagger UI at runtime)
+COPY openapi.json ./openapi.json
+
 # Generate Prisma client
 RUN npx prisma generate
 
@@ -40,6 +43,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# Copy OpenAPI spec for Swagger UI
+COPY --from=builder /app/openapi.json ./openapi.json
 
 # Expose the backend API port
 EXPOSE 3000
