@@ -3,4 +3,6 @@ langgraph
 langchain-openai
 python-dotenv
 pydantic
+pydantic-settings
 fastapi
+uvicorn[standard]
