@@ -44,5 +44,6 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 # Expose the backend API port
 EXPOSE 3000
 
-# Run Prisma migrations then start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# Mark the baseline migration as applied (safe for existing Supabase DB),
+# then start the server. Using || true so it doesn't fail if already resolved.
+CMD ["sh", "-c", "npx prisma migrate resolve --applied 0_init || true && node dist/server.js"]
