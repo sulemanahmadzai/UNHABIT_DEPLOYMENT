@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as BuddiesService from "../services/buddies.service.js";
+import { isValidUUID } from "../utils/validation.js";
 const r = Router();
 /**
  * GET /api/buddies
@@ -222,6 +223,155 @@ r.delete("/:id", requireAuth, async (req, res, next) => {
             });
         }
         res.json({ success: true, message: "Buddy removed successfully" });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/buddies/quick-view
+ * Get buddy quick view for home screen
+ */
+r.get("/quick-view", requireAuth, async (req, res, next) => {
+    try {
+        const quickView = await BuddiesService.getQuickView(req.user.id);
+        res.json({ success: true, data: quickView });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/buddies/:id/profile
+ * Get buddy profile with their progress
+ */
+r.get("/:id/profile", requireAuth, async (req, res, next) => {
+    try {
+        const buddyLinkId = req.params.id;
+        if (!buddyLinkId) {
+            return res.status(400).json({ success: false, error: "Buddy link ID is required" });
+        }
+        if (!isValidUUID(buddyLinkId)) {
+            return res.status(400).json({ success: false, error: "Invalid buddy link ID format" });
+        }
+        const profile = await BuddiesService.getBuddyProfile(req.user.id, buddyLinkId);
+        if (!profile) {
+            return res.status(404).json({ success: false, error: "Buddy not found" });
+        }
+        res.json({ success: true, data: profile });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/buddies/:id/nudge
+ * Send a quick nudge to buddy
+ */
+r.post("/:id/nudge", requireAuth, async (req, res, next) => {
+    try {
+        const buddyLinkId = req.params.id;
+        if (!buddyLinkId) {
+            return res.status(400).json({ success: false, error: "Buddy link ID is required" });
+        }
+        const schema = z.object({
+            message: z.string().min(1).max(200),
+        });
+        const { message } = schema.parse(req.body);
+        const nudge = await BuddiesService.sendNudge(req.user.id, buddyLinkId, message);
+        if (!nudge) {
+            return res.status(404).json({ success: false, error: "Buddy link not found" });
+        }
+        res.status(201).json({ success: true, data: nudge });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/buddies/nudges
+ * Get received nudges
+ */
+r.get("/nudges", requireAuth, async (req, res, next) => {
+    try {
+        const limit = parseInt(req.query.limit) || 20;
+        const nudges = await BuddiesService.getNudges(req.user.id, limit);
+        res.json({ success: true, data: nudges });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/buddies/invites/:id/resend
+ * Resend an invite
+ */
+r.post("/invites/:id/resend", requireAuth, async (req, res, next) => {
+    try {
+        const inviteId = req.params.id;
+        if (!inviteId) {
+            return res.status(400).json({ success: false, error: "Invite ID is required" });
+        }
+        const invite = await BuddiesService.resendInvite(req.user.id, inviteId);
+        if (!invite) {
+            return res.status(404).json({ success: false, error: "Invite not found or already accepted" });
+        }
+        res.json({ success: true, data: invite });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * DELETE /api/buddies/invites/:id
+ * Cancel an invite
+ */
+r.delete("/invites/:id", requireAuth, async (req, res, next) => {
+    try {
+        const inviteId = req.params.id;
+        if (!inviteId) {
+            return res.status(400).json({ success: false, error: "Invite ID is required" });
+        }
+        const cancelled = await BuddiesService.cancelInvite(req.user.id, inviteId);
+        if (!cancelled) {
+            return res.status(404).json({ success: false, error: "Invite not found" });
+        }
+        res.json({ success: true, message: "Invite cancelled" });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/buddies/invite/:code/url
+ * Get invite URL for a code
+ */
+r.get("/invite/:code/url", requireAuth, async (req, res, next) => {
+    try {
+        const code = req.params.code;
+        if (!code) {
+            return res.status(400).json({ success: false, error: "Invite code is required" });
+        }
+        // Verify invite exists
+        const invite = await BuddiesService.getInviteByCode(code);
+        if (!invite) {
+            return res.status(404).json({ success: false, error: "Invite not found" });
+        }
+        const url = BuddiesService.getInviteUrl(code);
+        res.json({ success: true, data: { invite_url: url } });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/buddies/completed-today
+ * Get buddies who completed tasks today
+ */
+r.get("/completed-today", requireAuth, async (req, res, next) => {
+    try {
+        const buddies = await BuddiesService.getBuddiesCompletedToday(req.user.id);
+        res.json({ success: true, data: buddies });
     }
     catch (error) {
         next(error);

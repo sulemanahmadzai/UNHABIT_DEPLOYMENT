@@ -104,4 +104,22 @@ export declare function getDailyMetrics(userId: string, days: number): Promise<{
  * Export user data
  */
 export declare function exportUserData(userId: string, format: "json" | "csv"): Promise<unknown>;
+/**
+ * Get missed days summary
+ */
+export declare function getMissedDaysSummary(userId: string): Promise<{
+    total_missed: number;
+    last_missed_days_ago: number | null;
+}>;
+/**
+ * Get habit health trend (historical data)
+ */
+export declare function getHabitHealthTrend(userId: string, days?: number): Promise<{
+    trend: {
+        date: string;
+        health: number;
+    }[];
+    current_health: number;
+    change_percent: number;
+}>;
 //# sourceMappingURL=analytics.service.d.ts.map

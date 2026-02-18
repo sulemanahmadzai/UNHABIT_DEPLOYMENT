@@ -87,6 +87,7 @@ export declare function createOrUpdateProfile(userId: string, profileData: {
     timezone: string;
     locale: string;
     onboarded: boolean;
+    role: import("@prisma/client").$Enums.user_role;
     created_at: Date;
     updated_at: Date;
 }>;
@@ -100,6 +101,7 @@ export declare function getProfile(userId: string): Promise<{
     timezone: string;
     locale: string;
     onboarded: boolean;
+    role: import("@prisma/client").$Enums.user_role;
     created_at: Date;
     updated_at: Date;
 } | null>;
@@ -113,8 +115,21 @@ export declare function markOnboarded(userId: string): Promise<{
     timezone: string;
     locale: string;
     onboarded: boolean;
+    role: import("@prisma/client").$Enums.user_role;
     created_at: Date;
     updated_at: Date;
+}>;
+/**
+ * Refresh access token using refresh token
+ */
+export declare function refreshSession(refreshToken: string): Promise<{
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    user: {
+        id: string | undefined;
+        email: string | undefined;
+    };
 }>;
 export {};
 //# sourceMappingURL=auth.service.d.ts.map

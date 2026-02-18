@@ -46,7 +46,10 @@ export async function adminLogin(email, password) {
         password,
     });
     if (error) {
-        throw new Error(`Login failed: ${error.message}`);
+        const authError = new Error(`Login failed: ${error.message}`);
+        authError.status = 401; // Set status code for error handler
+        authError.statusCode = 401;
+        throw authError;
     }
     return {
         user: data.user,
@@ -196,5 +199,28 @@ export async function markOnboarded(userId) {
         data: { onboarded: true, updated_at: new Date() },
     });
     return profile;
+}
+/**
+ * Refresh access token using refresh token
+ */
+export async function refreshSession(refreshToken) {
+    const { data, error } = await supabaseAdmin.auth.refreshSession({
+        refresh_token: refreshToken,
+    });
+    if (error) {
+        throw new Error(`Token refresh failed: ${error.message}`);
+    }
+    if (!data.session) {
+        throw new Error("Failed to refresh session");
+    }
+    return {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_in: data.session.expires_in,
+        user: {
+            id: data.user?.id,
+            email: data.user?.email,
+        },
+    };
 }
 //# sourceMappingURL=auth.service.js.map

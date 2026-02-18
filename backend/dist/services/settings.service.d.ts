@@ -1,4 +1,8 @@
 /**
+ * Settings Service
+ * Handles privacy, share preferences, and device management
+ */
+/**
  * Get privacy settings
  */
 export declare function getPrivacySettings(userId: string): Promise<{
@@ -13,8 +17,6 @@ export declare function getPrivacySettings(userId: string): Promise<{
     user_id: string;
     share_with_buddy: false;
     allow_research: false;
-    data_export_requested_at: null;
-    data_delete_requested_at: null;
 }>;
 /**
  * Update privacy settings
@@ -84,24 +86,14 @@ export declare function unregisterDevice(userId: string, deviceId: string): Prom
  * Request data export
  */
 export declare function requestDataExport(userId: string): Promise<{
-    user_id: string;
-    created_at: Date;
-    updated_at: Date;
-    share_with_buddy: boolean;
-    allow_research: boolean;
-    data_export_requested_at: Date | null;
-    data_delete_requested_at: Date | null;
+    requested_at: Date;
+    status: string;
 }>;
 /**
  * Request account deletion
  */
 export declare function requestAccountDeletion(userId: string): Promise<{
-    user_id: string;
-    created_at: Date;
-    updated_at: Date;
-    share_with_buddy: boolean;
-    allow_research: boolean;
-    data_export_requested_at: Date | null;
-    data_delete_requested_at: Date | null;
+    requested_at: Date;
+    status: string;
 }>;
 //# sourceMappingURL=settings.service.d.ts.map

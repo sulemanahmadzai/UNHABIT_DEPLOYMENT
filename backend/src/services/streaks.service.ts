@@ -41,7 +41,7 @@ export async function getStreakDetails(userId: string) {
   for (let i = 29; i >= 0; i--) {
     const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
     const dateStr = date.toISOString().split("T")[0];
-    
+
     const hasCompletion = taskProgress.some(p => {
       if (!p.completed_at) return false;
       const completedDate = new Date(p.completed_at);
@@ -67,11 +67,13 @@ export async function getStreakDetails(userId: string) {
       status = "missed";
     }
 
-    calendar.push({
-      date: dateStr,
-      day_of_week: date.getDay(),
-      status,
-    });
+    if (dateStr) {
+      calendar.push({
+        date: dateStr,
+        day_of_week: date.getDay(),
+        status,
+      });
+    }
   }
 
   // Calculate freeze availability
@@ -381,7 +383,7 @@ function getHealthMessage(score: number): string {
  */
 export async function calculateAvailableFreezes(userId: string): Promise<number> {
   const baseFreezes = await getSettingValue("base_freezes_per_week", 1);
-  
+
   const [pointBalance, streak] = await Promise.all([
     prisma.point_balances.findUnique({ where: { user_id: userId } }),
     prisma.streaks.findFirst({ where: { user_id: userId, kind: "task_completion" } }),
@@ -392,7 +394,7 @@ export async function calculateAvailableFreezes(userId: string): Promise<number>
 
   // XP bonus: 1 extra freeze per 1000 XP (max 2 from XP)
   const xpBonus = Math.min(Math.floor(totalXP / 1000), 2);
-  
+
   // Streak bonus: 1 extra freeze if streak >= 14 days
   const streakBonus = currentStreak >= 14 ? 1 : 0;
 

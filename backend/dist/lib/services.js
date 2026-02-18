@@ -1,7 +1,8 @@
 // src/lib/services.ts
-import { prisma } from "../db/prisma.js";
+import { prisma as prismaClient } from "../db/prisma.js";
 import { createClient } from "@supabase/supabase-js";
-export const db = prisma;
+export const db = prismaClient;
+export const prisma = prismaClient; // Alias for new services
 // Anon client - for frontend (public operations)
 export const supabaseAnon = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     auth: {

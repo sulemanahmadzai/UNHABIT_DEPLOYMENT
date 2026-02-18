@@ -1,4 +1,6 @@
 import { prisma } from "../lib/services.js";
+import { Prisma } from "@prisma/client";
+import { removeUndefined } from "../utils/object.js";
 
 // ==================== HABIT CATEGORIES ====================
 
@@ -8,7 +10,7 @@ export async function getCategories() {
   });
 }
 
-export async function createCategory(data: { name: string; description?: string }) {
+export async function createCategory(data: { name: string; description?: string | undefined }) {
   return prisma.habit_categories.create({
     data: {
       name: data.name,
@@ -17,13 +19,10 @@ export async function createCategory(data: { name: string; description?: string 
   });
 }
 
-export async function updateCategory(id: string, data: { name?: string; description?: string }) {
+export async function updateCategory(id: string, data: { name?: string | undefined; description?: string | undefined }) {
   return prisma.habit_categories.update({
     where: { id },
-    data: {
-      name: data.name,
-      description: data.description,
-    },
+    data: removeUndefined(data) as any,
   });
 }
 
@@ -42,7 +41,7 @@ export async function deleteCategory(id: string) {
 
 export async function getTemplates(categoryId?: string) {
   return prisma.habit_templates.findMany({
-    where: categoryId ? { category_id: categoryId } : undefined,
+    ...(categoryId && { where: { category_id: categoryId } }),
     include: {
       habit_categories: true,
     },
@@ -59,9 +58,9 @@ export async function getTemplateById(id: string) {
 
 export async function createTemplate(data: {
   title: string;
-  description?: string;
-  slug?: string;
-  category_id?: string;
+  description?: string | undefined;
+  slug?: string | undefined;
+  category_id?: string | undefined;
 }) {
   try {
     return await prisma.habit_templates.create({
@@ -85,20 +84,15 @@ export async function createTemplate(data: {
 export async function updateTemplate(
   id: string,
   data: {
-    title?: string;
-    description?: string;
-    slug?: string;
-    category_id?: string;
+    title?: string | undefined;
+    description?: string | undefined;
+    slug?: string | undefined;
+    category_id?: string | undefined;
   }
 ) {
   return prisma.habit_templates.update({
     where: { id },
-    data: {
-      title: data.title,
-      description: data.description,
-      slug: data.slug,
-      category_id: data.category_id,
-    },
+    data: removeUndefined(data) as any,
   });
 }
 
@@ -122,10 +116,10 @@ export async function getBadgeDefinitions() {
 export async function createBadgeDefinition(data: {
   slug: string;
   name: string;
-  description?: string;
-  icon_url?: string;
-  category?: string;
-  tier?: string;
+  description?: string | undefined;
+  icon_url?: string | undefined;
+  category?: string | undefined;
+  tier?: string | undefined;
 }) {
   return prisma.badge_definitions.create({
     data: {
@@ -142,17 +136,17 @@ export async function createBadgeDefinition(data: {
 export async function updateBadgeDefinition(
   id: string,
   data: {
-    slug?: string;
-    name?: string;
-    description?: string;
-    icon_url?: string;
-    category?: string;
-    tier?: string;
+    slug?: string | undefined;
+    name?: string | undefined;
+    description?: string | undefined;
+    icon_url?: string | undefined;
+    category?: string | undefined;
+    tier?: string | undefined;
   }
 ) {
   return prisma.badge_definitions.update({
     where: { id },
-    data,
+    data: removeUndefined(data) as any,
   });
 }
 
@@ -166,7 +160,7 @@ export async function deleteBadgeDefinition(id: string) {
 
 export async function getBadgeRules(badgeId?: string) {
   return prisma.badge_rules.findMany({
-    where: badgeId ? { badge_id: badgeId } : undefined,
+    ...(badgeId && { where: { badge_id: badgeId } }),
     include: {
       badge_definitions: true,
     },
@@ -178,8 +172,8 @@ export async function createBadgeRule(data: {
   badge_id: string;
   rule_type: string;
   threshold: number;
-  description?: string;
-  is_active?: boolean;
+  description?: string | undefined;
+  is_active?: boolean | undefined;
 }) {
   return prisma.badge_rules.create({
     data: {
@@ -195,15 +189,15 @@ export async function createBadgeRule(data: {
 export async function updateBadgeRule(
   id: string,
   data: {
-    rule_type?: string;
-    threshold?: number;
-    description?: string;
-    is_active?: boolean;
+    rule_type?: string | undefined;
+    threshold?: number | undefined;
+    description?: string | undefined;
+    is_active?: boolean | undefined;
   }
 ) {
   return prisma.badge_rules.update({
     where: { id },
-    data,
+    data: removeUndefined(data) as any,
   });
 }
 
@@ -225,8 +219,8 @@ export async function createPointRule(data: {
   code: string;
   event_type: string;
   amount: number;
-  caps?: Record<string, unknown>;
-  conditions?: Record<string, unknown>;
+  caps?: Record<string, unknown> | undefined;
+  conditions?: Record<string, unknown> | undefined;
 }) {
   try {
     return await prisma.point_rules.create({
@@ -234,8 +228,8 @@ export async function createPointRule(data: {
         code: data.code,
         event_type: data.event_type,
         amount: data.amount,
-        caps: data.caps ?? null,
-        conditions: data.conditions ?? null,
+        caps: (data.caps ?? Prisma.JsonNull) as any,
+        conditions: (data.conditions ?? Prisma.JsonNull) as any,
       },
     });
   } catch (error: any) {
@@ -251,16 +245,16 @@ export async function createPointRule(data: {
 export async function updatePointRule(
   id: string,
   data: {
-    code?: string;
-    event_type?: string;
-    amount?: number;
-    caps?: Record<string, unknown>;
-    conditions?: Record<string, unknown>;
+    code?: string | undefined;
+    event_type?: string | undefined;
+    amount?: number | undefined;
+    caps?: Record<string, unknown> | undefined;
+    conditions?: Record<string, unknown> | undefined;
   }
 ) {
   return prisma.point_rules.update({
     where: { id },
-    data,
+    data: removeUndefined(data) as any,
   });
 }
 
@@ -288,20 +282,20 @@ export async function upsertAppSetting(
   key: string,
   data: {
     value: string;
-    value_type?: string;
-    description?: string;
+    value_type?: string | undefined;
+    description?: string | undefined;
   },
   updatedBy?: string
 ) {
   return prisma.app_settings.upsert({
     where: { key },
-    update: {
+    update: removeUndefined({
       value: data.value,
       value_type: data.value_type,
       description: data.description,
       updated_at: new Date(),
       updated_by: updatedBy ?? null,
-    },
+    }) as any,
     create: {
       key,
       value: data.value,
@@ -388,7 +382,11 @@ export async function seedDefaultPointRules() {
     await prisma.point_rules.upsert({
       where: { code: rule.code },
       update: {}, // Don't update if exists
-      create: rule,
+      create: {
+        ...rule,
+        caps: rule.caps as any,
+        conditions: rule.conditions as any,
+      },
     });
   }
 

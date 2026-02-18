@@ -13,15 +13,15 @@ const r = Router();
 r.get("/templates", async (req, res, next) => {
   try {
     const categoryId = req.query.category_id as string | undefined;
-    
+
     const templates = await prisma.habit_templates.findMany({
-      where: categoryId ? { category_id: categoryId } : undefined,
+      ...(categoryId && { where: { category_id: categoryId } }),
       include: {
         habit_categories: true,
       },
       orderBy: { title: "asc" },
     });
-    
+
     res.json({ success: true, data: templates });
   } catch (error) {
     next(error);
@@ -37,7 +37,7 @@ r.get("/categories", async (_req, res, next) => {
     const categories = await prisma.habit_categories.findMany({
       orderBy: { name: "asc" },
     });
-    
+
     res.json({ success: true, data: categories });
   } catch (error) {
     next(error);

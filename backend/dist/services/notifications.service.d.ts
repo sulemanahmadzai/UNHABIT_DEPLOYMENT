@@ -103,5 +103,40 @@ export declare function getDeliveryHistory(userId: string, limit: number, offset
     opened_at: Date | null;
     engaged: boolean | null;
 }[]>;
+/**
+ * Add a task reminder
+ */
+export declare function addTaskReminder(userId: string, data: {
+    journey_task_id: string;
+    remind_at: Date;
+}): Promise<{
+    user_id: string;
+    created_at: Date;
+    id: string;
+    journey_task_id: string;
+    remind_at: Date;
+    sent: boolean;
+} | null>;
+/**
+ * Get task reminders
+ */
+export declare function getTaskReminders(userId: string): Promise<({
+    journey_tasks: {
+        id: string;
+        title: string;
+        kind: string | null;
+    };
+} & {
+    user_id: string;
+    created_at: Date;
+    id: string;
+    journey_task_id: string;
+    remind_at: Date;
+    sent: boolean;
+})[]>;
+/**
+ * Delete a task reminder
+ */
+export declare function deleteTaskReminder(userId: string, reminderId: string): Promise<boolean>;
 export {};
 //# sourceMappingURL=notifications.service.d.ts.map

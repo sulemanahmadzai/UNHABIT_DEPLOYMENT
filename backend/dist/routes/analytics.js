@@ -130,5 +130,32 @@ r.get("/export", requireAuth, async (req, res, next) => {
         next(error);
     }
 });
+/**
+ * GET /api/analytics/missed-days
+ * Get missed days summary
+ */
+r.get("/missed-days", requireAuth, async (req, res, next) => {
+    try {
+        const summary = await AnalyticsService.getMissedDaysSummary(req.user.id);
+        res.json({ success: true, data: summary });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/analytics/habit-health-trend
+ * Get habit health trend over time
+ */
+r.get("/habit-health-trend", requireAuth, async (req, res, next) => {
+    try {
+        const days = parseInt(req.query.days) || 7;
+        const trend = await AnalyticsService.getHabitHealthTrend(req.user.id, days);
+        res.json({ success: true, data: trend });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 export default r;
 //# sourceMappingURL=analytics.js.map

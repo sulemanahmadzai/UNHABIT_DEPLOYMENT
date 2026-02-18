@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as CoachService from "../services/coach.service.js";
 import * as AIClient from "../services/ai-client.service.js";
+import { isValidUUID } from "../utils/validation.js";
 const r = Router();
 /**
  * GET /api/coach/sessions
@@ -41,6 +42,9 @@ r.get("/sessions/:id", requireAuth, async (req, res, next) => {
         if (!sessionId) {
             return res.status(400).json({ success: false, error: "Session ID is required" });
         }
+        if (!isValidUUID(sessionId)) {
+            return res.status(400).json({ success: false, error: "Invalid session ID format" });
+        }
         const session = await CoachService.getSessionWithMessages(req.user.id, sessionId);
         if (!session) {
             return res.status(404).json({ success: false, error: "Session not found" });
@@ -60,6 +64,9 @@ r.post("/sessions/:id/messages", requireAuth, async (req, res, next) => {
         const sessionId = req.params.id;
         if (!sessionId) {
             return res.status(400).json({ success: false, error: "Session ID is required" });
+        }
+        if (!isValidUUID(sessionId)) {
+            return res.status(400).json({ success: false, error: "Invalid session ID format" });
         }
         const schema = z.object({
             message: z.string().min(1).max(2000),
@@ -103,18 +110,14 @@ r.post("/sessions/:id/messages", requireAuth, async (req, res, next) => {
             });
         }
         // Save assistant response
-        const assistantMessage = await CoachService.addMessage(sessionId, "assistant", aiResult.data.reply, { actions: aiResult.data.actions });
-        // Handle any actions from AI
-        if (aiResult.data.actions && aiResult.data.actions.length > 0) {
-            for (const action of aiResult.data.actions) {
-                await CoachService.saveAction(sessionId, action.action, action.payload);
-            }
-        }
+        // AI service returns { coach_reply, chat_history }
+        const assistantMessage = await CoachService.addMessage(sessionId, "assistant", aiResult.data.coach_reply, { chat_history: aiResult.data.chat_history });
+        // Note: AI service doesn't return actions, only coach_reply and chat_history
         res.json({
             success: true,
             data: {
                 message: assistantMessage,
-                actions: aiResult.data.actions,
+                chat_history: aiResult.data.chat_history,
             },
         });
     }
@@ -131,6 +134,9 @@ r.post("/sessions/:id/end", requireAuth, async (req, res, next) => {
         const sessionId = req.params.id;
         if (!sessionId) {
             return res.status(400).json({ success: false, error: "Session ID is required" });
+        }
+        if (!isValidUUID(sessionId)) {
+            return res.status(400).json({ success: false, error: "Invalid session ID format" });
         }
         const session = await CoachService.endSession(req.user.id, sessionId);
         if (!session) {

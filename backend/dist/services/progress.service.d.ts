@@ -124,5 +124,94 @@ export declare function getSlipHistory(userId: string, limit: number, offset: nu
     happened_at: Date;
     context: Prisma.JsonValue | null;
 })[]>;
+/**
+ * Get today's progress (tasks for the current journey day)
+ */
+export declare function getTodayProgress(userId: string): Promise<{
+    has_active_journey: boolean;
+    tasks: never[];
+    tasks_completed: number;
+    tasks_total: number;
+    journey_id?: never;
+    day_number?: never;
+    day_id?: never;
+    total_days?: never;
+    theme?: never;
+    habit_goal?: never;
+    all_completed?: never;
+} | {
+    has_active_journey: boolean;
+    journey_id: string;
+    day_number: number;
+    tasks: never[];
+    tasks_completed: number;
+    tasks_total: number;
+    day_id?: never;
+    total_days?: never;
+    theme?: never;
+    habit_goal?: never;
+    all_completed?: never;
+} | {
+    has_active_journey: boolean;
+    journey_id: string;
+    day_id: string;
+    day_number: number;
+    total_days: number;
+    theme: string | null;
+    habit_goal: string | undefined;
+    tasks: {
+        id: string;
+        title: string;
+        kind: string | null;
+        effort: number | null;
+        completed: boolean;
+        completed_at: Date | null | undefined;
+        xp: number;
+    }[];
+    tasks_completed: number;
+    tasks_total: number;
+    all_completed: boolean;
+}>;
+/**
+ * Complete all tasks for today
+ */
+export declare function completeDayTasks(userId: string): Promise<{
+    completed: number;
+    already_completed: number;
+    total?: never;
+} | {
+    completed: number;
+    already_completed: number;
+    total: number;
+}>;
+/**
+ * Get progress snapshot (XP, streak, habit health, next badge)
+ */
+export declare function getProgressSnapshot(userId: string): Promise<{
+    xp: {
+        total: number;
+        today: number;
+        if_completed_today: number;
+    };
+    streak: {
+        current: number;
+        impact: string;
+    };
+    habit_health: {
+        current: number;
+        change: string;
+    };
+    level: {
+        current: number;
+        progress: number;
+    };
+    badges: {
+        earned: number;
+        next: {
+            name: string;
+            days_left: number;
+        } | null;
+    };
+}>;
 export {};
 //# sourceMappingURL=progress.service.d.ts.map

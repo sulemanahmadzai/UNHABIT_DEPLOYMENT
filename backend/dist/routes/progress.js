@@ -2,6 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as ProgressService from "../services/progress.service.js";
+import * as BadgeAwardingService from "../services/badge-awarding.service.js";
+import * as RewardsService from "../services/rewards.service.js";
+import { getSettingValue } from "../services/admin.service.js";
 const r = Router();
 /**
  * POST /api/progress/tasks/:taskId/complete
@@ -17,7 +20,18 @@ r.post("/tasks/:taskId/complete", requireAuth, async (req, res, next) => {
         if (!result) {
             return res.status(404).json({ success: false, error: "Task not found" });
         }
-        res.json({ success: true, data: result });
+        // Award XP for task completion
+        const xpPerTask = await getSettingValue("xp_per_task_completion", 10);
+        await RewardsService.awardPoints(req.user.id, xpPerTask);
+        // Check and award badges + update streak
+        const badgeResult = await BadgeAwardingService.onTaskCompleted(req.user.id, taskId);
+        res.json({
+            success: true,
+            data: result,
+            xp_earned: xpPerTask,
+            streak_updated: badgeResult.streak_updated,
+            new_badges: badgeResult.new_badges,
+        });
     }
     catch (error) {
         next(error);
@@ -153,6 +167,45 @@ r.get("/slips", requireAuth, async (req, res, next) => {
         const offset = parseInt(req.query.offset) || 0;
         const slips = await ProgressService.getSlipHistory(req.user.id, limit, offset);
         res.json({ success: true, data: slips });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/progress/today
+ * Get today's tasks and progress
+ */
+r.get("/today", requireAuth, async (req, res, next) => {
+    try {
+        const progress = await ProgressService.getTodayProgress(req.user.id);
+        res.json({ success: true, data: progress });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/progress/complete-day
+ * Mark all today's tasks as complete
+ */
+r.post("/complete-day", requireAuth, async (req, res, next) => {
+    try {
+        const result = await ProgressService.completeDayTasks(req.user.id);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/progress/snapshot
+ * Get progress snapshot (XP, streak, habit health, next badge)
+ */
+r.get("/snapshot", requireAuth, async (req, res, next) => {
+    try {
+        const snapshot = await ProgressService.getProgressSnapshot(req.user.id);
+        res.json({ success: true, data: snapshot });
     }
     catch (error) {
         next(error);

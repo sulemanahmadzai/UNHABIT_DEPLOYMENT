@@ -7,6 +7,7 @@ declare global {
                 email?: string | undefined;
                 role?: string | undefined;
                 aud?: string | undefined;
+                appRole?: "user" | "admin" | undefined;
             };
         }
     }
@@ -21,4 +22,13 @@ export declare function requireAuth(req: Request, res: Response, next: NextFunct
  * Useful for endpoints that work with or without auth
  */
 export declare function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void>;
+/**
+ * Middleware to require admin role
+ * Must be used after requireAuth
+ */
+export declare function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+/**
+ * Combined middleware for routes that require both auth and admin
+ */
+export declare const requireAuthAndAdmin: (typeof requireAuth)[];
 //# sourceMappingURL=auth.d.ts.map

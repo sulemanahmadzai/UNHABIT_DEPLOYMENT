@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
+import { rateLimiters } from "../middlewares/rate-limit.js";
 import * as AIClient from "../services/ai-client.service.js";
 
 const r = Router();
@@ -9,7 +10,7 @@ const r = Router();
  * POST /api/ai/onboarding/start
  * Start onboarding (proxies to AI service)
  */
-r.post("/onboarding/start", requireAuth, async (req, res, next) => {
+r.post("/onboarding/start", requireAuth, rateLimiters.aiOnboarding, async (req, res, next) => {
   try {
     const schema = z.object({
       user_input: z.string().min(1).max(2000),
@@ -36,7 +37,7 @@ r.post("/onboarding/start", requireAuth, async (req, res, next) => {
  * POST /api/ai/canonicalize-habit
  * Classify/canonicalize a habit
  */
-r.post("/canonicalize-habit", requireAuth, async (req, res, next) => {
+r.post("/canonicalize-habit", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
       user_input: z.string().min(1).max(1000),
@@ -63,7 +64,7 @@ r.post("/canonicalize-habit", requireAuth, async (req, res, next) => {
  * POST /api/ai/safety
  * Run safety assessment
  */
-r.post("/safety", requireAuth, async (req, res, next) => {
+r.post("/safety", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
       user_input: z.string().min(1).max(2000),
@@ -90,7 +91,7 @@ r.post("/safety", requireAuth, async (req, res, next) => {
  * POST /api/ai/quiz-form
  * Generate quiz form
  */
-r.post("/quiz-form", requireAuth, async (req, res, next) => {
+r.post("/quiz-form", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
       habit_category: z.string().min(1),
@@ -123,7 +124,7 @@ r.post("/quiz-form", requireAuth, async (req, res, next) => {
  * POST /api/ai/quiz-summary
  * Get quiz summary (proxies to AI service)
  */
-r.post("/quiz-summary", requireAuth, async (req, res, next) => {
+r.post("/quiz-summary", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
       answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
@@ -170,7 +171,7 @@ r.post("/quiz-summary", requireAuth, async (req, res, next) => {
  * POST /api/ai/plan-21d
  * Generate plan (proxies to AI service)
  */
-r.post("/plan-21d", requireAuth, async (req, res, next) => {
+r.post("/plan-21d", requireAuth, rateLimiters.aiPlan, async (req, res, next) => {
   try {
     const schema = z.object({
       habit_goal: z.string().min(1).max(500),
@@ -203,7 +204,7 @@ r.post("/plan-21d", requireAuth, async (req, res, next) => {
  * POST /api/ai/coach
  * AI coach chat (proxies to AI service)
  */
-r.post("/coach", requireAuth, async (req, res, next) => {
+r.post("/coach", requireAuth, rateLimiters.aiCoach, async (req, res, next) => {
   try {
     const schema = z.object({
       message: z.string().min(1).max(2000),
@@ -249,7 +250,7 @@ r.post("/coach", requireAuth, async (req, res, next) => {
  * POST /api/ai/why-day
  * Get day explanation (proxies to AI service)
  */
-r.post("/why-day", requireAuth, async (req, res, next) => {
+r.post("/why-day", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
       day_number: z.number().int().min(1).max(21),

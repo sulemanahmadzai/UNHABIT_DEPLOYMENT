@@ -2,7 +2,43 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as HabitsService from "../services/habits.service.js";
+import { prisma } from "../lib/services.js";
 const r = Router();
+/**
+ * GET /api/habits/templates
+ * Get habit templates (public, no auth required for browsing)
+ */
+r.get("/templates", async (req, res, next) => {
+    try {
+        const categoryId = req.query.category_id;
+        const templates = await prisma.habit_templates.findMany({
+            ...(categoryId && { where: { category_id: categoryId } }),
+            include: {
+                habit_categories: true,
+            },
+            orderBy: { title: "asc" },
+        });
+        res.json({ success: true, data: templates });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/habits/categories
+ * Get habit categories
+ */
+r.get("/categories", async (_req, res, next) => {
+    try {
+        const categories = await prisma.habit_categories.findMany({
+            orderBy: { name: "asc" },
+        });
+        res.json({ success: true, data: categories });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 /**
  * GET /api/habits
  * List user's habits

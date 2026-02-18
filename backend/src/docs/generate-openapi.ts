@@ -36,29 +36,30 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
   try {
     const content = readFileSync(filePath, "utf-8");
     const endpoints: any[] = [];
-    
+
     // Match JSDoc comments with route definitions
     const routePattern = /\/\*\*\s*\n\s*\*\s*([A-Z]+)\s+(\/api\/[^\n]+)\s*\n\s*\*\s*([^\n]+(?:\n\s*\*[^\n]+)*)\s*\*\/\s*\n\s*r\.(get|post|put|delete|patch)\(["']([^"']+)["']/g;
-    
+
     let match;
     while ((match = routePattern.exec(content)) !== null) {
+      if (!match[1] || !match[2] || !match[3] || !match[4] || !match[5]) continue;
       const method = match[1];
       const fullPath = match[2];
       const description = match[3].replace(/\*\s*/g, "").trim();
       const httpMethod = match[4].toLowerCase();
       const routePath = match[5];
-      
+
       // Check if requireAuth is used
-      const authRequired = content.includes(`r.${httpMethod}("${routePath}", requireAuth`) || 
-                          content.includes(`r.${httpMethod}("${routePath}", requireAuth,`);
-      
+      const authRequired = content.includes(`r.${httpMethod}("${routePath}", requireAuth`) ||
+        content.includes(`r.${httpMethod}("${routePath}", requireAuth,`);
+
       // Extract path parameters
-      const pathParams = routePath.match(/:(\w+)/g)?.map(p => p.slice(1)) || [];
-      
+      const pathParams = routePath?.match(/:(\w+)/g)?.map(p => p.slice(1)) || [];
+
       // Extract query parameters from code
       const queryParams: any[] = [];
-      const queryMatch = content.match(new RegExp(`r\\.${httpMethod}\\("${routePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^}]*req\\.query\\.(\\w+)`, 's'));
-      
+      const queryMatch = routePath ? content.match(new RegExp(`r\\.${httpMethod}\\("${routePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^}]*req\\.query\\.(\\w+)`, 's')) : null;
+
       // Try to extract Zod schema for request body
       let requestBody: any = null;
       const schemaMatch = content.match(/const schema = z\.object\(\{([^}]+)\}\)/s);
@@ -66,29 +67,32 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
         const schemaContent = schemaMatch[1];
         const properties: any = {};
         const required: string[] = [];
-        
+
         // Parse Zod schema fields
         const fieldPattern = /(\w+):\s*z\.(string|number|boolean|object|array|enum)\([^)]*\)(\.(optional|email|min|max|uuid))*/g;
         let fieldMatch;
-        while ((fieldMatch = fieldPattern.exec(schemaContent)) !== null) {
+        while (schemaContent && (fieldMatch = fieldPattern.exec(schemaContent)) !== null) {
+          if (!fieldMatch[1] || !fieldMatch[2]) continue;
           const fieldName = fieldMatch[1];
           const zodType = fieldMatch[2];
           const modifiers = fieldMatch[4];
-          
+
           let type = zodType;
           if (zodType === "string") type = "string";
           else if (zodType === "number") type = "number";
           else if (zodType === "boolean") type = "boolean";
           else if (zodType === "object") type = "object";
           else if (zodType === "array") type = "array";
-          
-          properties[fieldName] = { type };
-          
-          if (!modifiers?.includes("optional")) {
-            required.push(fieldName);
+
+          if (fieldName) {
+            properties[fieldName] = { type };
+
+            if (!modifiers?.includes("optional")) {
+              required.push(fieldName);
+            }
           }
         }
-        
+
         if (Object.keys(properties).length > 0) {
           requestBody = {
             required: true,
@@ -104,10 +108,11 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
           };
         }
       }
-      
+
       // Build OpenAPI path
+      if (!routePath) continue;
       const openApiPath = `${basePath}${routePath.replace(/:(\w+)/g, "{$1}")}`;
-      
+
       endpoints.push({
         path: openApiPath,
         method: httpMethod,
@@ -115,7 +120,7 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
           tags: [routeMap[basePath] || basePath.slice(1)],
           summary: description.split("\n")[0] || `${method} ${fullPath}`,
           description: description,
-          operationId: `${httpMethod}${routePath.replace(/[\/:]/g, "").replace(/\{(\w+)\}/g, "$1")}`,
+          operationId: `${httpMethod}${routePath?.replace(/[\/:]/g, "").replace(/\{(\w+)\}/g, "$1") || ''}`,
           security: authRequired ? [{ bearerAuth: [] }] : [],
           parameters: [
             ...pathParams.map((param: string) => ({
@@ -193,7 +198,7 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
         },
       });
     }
-    
+
     return endpoints;
   } catch (error) {
     console.error(`Error parsing ${filePath}:`, error);
@@ -205,12 +210,12 @@ function parseRouteFile(filePath: string, basePath: string): any[] {
 function generateOpenAPI() {
   const routesDir = join(__dirname, "../routes");
   const allEndpoints: any[] = [];
-  
+
   // Parse all route files
   for (const [basePath, tag] of Object.entries(routeMap)) {
     const fileName = basePath.slice(1);
     const filePath = join(routesDir, `${fileName}.ts`);
-    
+
     try {
       const endpoints = parseRouteFile(filePath, basePath);
       allEndpoints.push(...endpoints);
@@ -218,7 +223,7 @@ function generateOpenAPI() {
       console.warn(`Could not parse ${filePath}:`, error);
     }
   }
-  
+
   // Build paths object
   const paths: any = {};
   for (const endpoint of allEndpoints) {
@@ -227,7 +232,7 @@ function generateOpenAPI() {
     }
     paths[endpoint.path][endpoint.method] = endpoint.operation;
   }
-  
+
   // Create complete OpenAPI spec
   const openApiSpec = {
     openapi: "3.0.0",
@@ -312,7 +317,7 @@ function generateOpenAPI() {
     })),
     paths,
   };
-  
+
   // Write to file
   const outputPath = join(__dirname, "../../openapi.json");
   writeFileSync(outputPath, JSON.stringify(openApiSpec, null, 2));

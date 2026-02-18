@@ -41,8 +41,8 @@ export declare function getUserJourneys(userId: string, status?: string): Promis
 } & {
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -95,8 +95,8 @@ export declare function getJourneyById(userId: string, journeyId: string): Promi
 } & {
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -126,8 +126,8 @@ export declare function createJourney(userId: string, data: CreateJourneyData): 
 } & {
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -157,8 +157,8 @@ export declare function updateJourney(userId: string, journeyId: string, data: U
 } & {
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -234,8 +234,8 @@ export declare function getJourneyDay(userId: string, journeyId: string, dayNumb
 export declare function startJourney(userId: string, journeyId: string): Promise<{
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -248,8 +248,8 @@ export declare function startJourney(userId: string, journeyId: string): Promise
 export declare function pauseJourney(userId: string, journeyId: string): Promise<{
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
@@ -262,13 +262,136 @@ export declare function pauseJourney(userId: string, journeyId: string): Promise
 export declare function resumeJourney(userId: string, journeyId: string): Promise<{
     user_id: string;
     created_at: Date;
-    type: import("@prisma/client").$Enums.journey_type;
     id: string;
+    type: import("@prisma/client").$Enums.journey_type;
     status: import("@prisma/client").$Enums.journey_status;
     user_habit_id: string | null;
     blueprint_id: string | null;
     start_date: Date | null;
     planned_days: number;
+} | null>;
+/**
+ * Get active journey for a user
+ */
+export declare function getActiveJourney(userId: string): Promise<({
+    user_habits: {
+        user_id: string;
+        created_at: Date;
+        id: string;
+        template_id: string | null;
+        goal_text: string;
+        started_at: Date | null;
+        status: string;
+    } | null;
+    _count: {
+        journey_days: number;
+    };
+    journey_blueprints: {
+        id: string;
+        title: string;
+        description: string | null;
+        code: string;
+        days: Prisma.JsonValue | null;
+    } | null;
+} & {
+    user_id: string;
+    created_at: Date;
+    id: string;
+    type: import("@prisma/client").$Enums.journey_type;
+    status: import("@prisma/client").$Enums.journey_status;
+    user_habit_id: string | null;
+    blueprint_id: string | null;
+    start_date: Date | null;
+    planned_days: number;
+}) | null>;
+/**
+ * Get today's journey day with tasks and progress
+ */
+export declare function getTodayJourneyDay(userId: string, journeyId: string): Promise<{
+    journey_id: string;
+    day_id: string;
+    day_number: number;
+    total_days: number;
+    theme: string | null;
+    prompts: Prisma.JsonValue;
+    tasks: {
+        id: string;
+        title: string;
+        kind: string | null;
+        effort: number | null;
+        meta: Prisma.JsonValue;
+        completed: boolean;
+        completed_at: Date | null | undefined;
+    }[];
+    tasks_completed: number;
+    tasks_total: number;
+    all_completed: boolean;
+    reflection: {
+        user_id: string;
+        created_at: Date;
+        id: string;
+        journey_day_id: string;
+        content: string | null;
+        answers: Prisma.JsonValue | null;
+    } | null;
+    habit_goal: string | null | undefined;
+} | null>;
+/**
+ * Restart a journey (reset to day 1)
+ */
+export declare function restartJourney(userId: string, journeyId: string): Promise<({
+    user_habits: {
+        user_id: string;
+        created_at: Date;
+        id: string;
+        template_id: string | null;
+        goal_text: string;
+        started_at: Date | null;
+        status: string;
+    } | null;
+    journey_days: ({
+        journey_tasks: {
+            id: string;
+            title: string;
+            kind: string | null;
+            effort: number | null;
+            meta: Prisma.JsonValue | null;
+            journey_day_id: string;
+        }[];
+    } & {
+        id: string;
+        day_number: number;
+        journey_id: string;
+        theme: string | null;
+        prompts: Prisma.JsonValue | null;
+    })[];
+} & {
+    user_id: string;
+    created_at: Date;
+    id: string;
+    type: import("@prisma/client").$Enums.journey_type;
+    status: import("@prisma/client").$Enums.journey_status;
+    user_habit_id: string | null;
+    blueprint_id: string | null;
+    start_date: Date | null;
+    planned_days: number;
+}) | null>;
+/**
+ * Get journey calendar data
+ */
+export declare function getJourneyCalendar(userId: string, journeyId: string): Promise<{
+    journey_id: string;
+    start_date: Date | null;
+    planned_days: number;
+    status: import("@prisma/client").$Enums.journey_status;
+    days: {
+        day_number: number;
+        date: string | null | undefined;
+        theme: string | null;
+        tasks_total: number;
+        tasks_completed: number;
+        status: "completed" | "partial" | "missed" | "upcoming" | "today";
+    }[];
 } | null>;
 export {};
 //# sourceMappingURL=journeys.service.d.ts.map

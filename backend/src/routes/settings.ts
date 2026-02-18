@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as SettingsService from "../services/settings.service.js";
 import * as ComprehensiveSettingsService from "../services/settings-comprehensive.service.js";
+import { removeUndefined } from "../utils/object.js";
 
 const r = Router();
 
@@ -31,10 +32,10 @@ r.put("/privacy", requireAuth, async (req, res, next) => {
     });
     const parsed = schema.parse(req.body);
 
-    const settings = await SettingsService.updatePrivacySettings(req.user!.id, {
+    const settings = await SettingsService.updatePrivacySettings(req.user!.id, removeUndefined({
       share_with_buddy: parsed.share_with_buddy,
       allow_research: parsed.allow_research,
-    });
+    }));
     res.json({ success: true, data: settings });
   } catch (error) {
     next(error);
@@ -66,10 +67,10 @@ r.put("/share", requireAuth, async (req, res, next) => {
     });
     const parsed = schema.parse(req.body);
 
-    const prefs = await SettingsService.updateSharePreferences(req.user!.id, {
+    const prefs = await SettingsService.updateSharePreferences(req.user!.id, removeUndefined({
       share_metrics: parsed.share_metrics,
       share_streaks: parsed.share_streaks,
-    });
+    }));
     res.json({ success: true, data: prefs });
   } catch (error) {
     next(error);
@@ -130,7 +131,7 @@ r.delete("/devices/:id", requireAuth, async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Device ID is required" });
     }
     const deleted = await SettingsService.unregisterDevice(req.user!.id, deviceId);
-    
+
     if (!deleted) {
       return res.status(404).json({ success: false, error: "Device not found" });
     }
@@ -207,7 +208,7 @@ r.put("/ai-coach-preferences", requireAuth, async (req, res, next) => {
     });
     const data = schema.parse(req.body);
 
-    const prefs = await ComprehensiveSettingsService.updateAICoachPreferences(req.user!.id, data);
+    const prefs = await ComprehensiveSettingsService.updateAICoachPreferences(req.user!.id, removeUndefined(data));
     res.json({ success: true, data: prefs });
   } catch (error) {
     next(error);

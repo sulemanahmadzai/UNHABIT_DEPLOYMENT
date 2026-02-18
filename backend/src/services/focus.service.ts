@@ -9,7 +9,7 @@ export async function startSession(
   userId: string,
   data: {
     duration_mins: number;
-    journey_day_id?: string;
+    journey_day_id?: string | undefined;
   }
 ) {
   // Verify journey day ownership if provided
@@ -94,8 +94,8 @@ export async function logSession(
   userId: string,
   data: {
     duration_mins: number;
-    journey_day_id?: string;
-    started_at?: Date;
+    journey_day_id?: string | undefined;
+    started_at?: Date | undefined;
   }
 ) {
   // Verify journey day ownership if provided

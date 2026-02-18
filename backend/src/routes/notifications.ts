@@ -4,6 +4,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import * as NotificationsService from "../services/notifications.service.js";
 import * as NotificationsFeedService from "../services/notifications-feed.service.js";
 import { isValidUUID } from "../utils/validation.js";
+import { removeUndefined } from "../utils/object.js";
 
 const r = Router();
 
@@ -33,11 +34,11 @@ r.put("/preferences", requireAuth, async (req, res, next) => {
     });
     const parsed = schema.parse(req.body);
 
-    const prefs = await NotificationsService.updatePreferences(req.user!.id, {
+    const prefs = await NotificationsService.updatePreferences(req.user!.id, removeUndefined({
       enabled: parsed.enabled,
       max_per_day: parsed.max_per_day,
       escalate_to_buddy: parsed.escalate_to_buddy,
-    });
+    }));
     res.json({ success: true, data: prefs });
   } catch (error) {
     next(error);
@@ -218,12 +219,12 @@ r.get("/", requireAuth, async (req, res, next) => {
     const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
     const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
 
-    const notifications = await NotificationsFeedService.getNotifications(req.user!.id, {
+    const notifications = await NotificationsFeedService.getNotifications(req.user!.id, removeUndefined({
       status,
       type,
       limit,
       offset,
-    });
+    }));
 
     res.json({ success: true, data: notifications });
   } catch (error) {
@@ -239,7 +240,7 @@ r.get("/", requireAuth, async (req, res, next) => {
 r.post("/mark-all-read", requireAuth, async (req, res, next) => {
   try {
     const result = await NotificationsFeedService.markAllNotificationsAsRead(req.user!.id);
-    
+
     res.json({ success: true, message: `Marked ${result.marked} notifications as read` });
   } catch (error) {
     next(error);
@@ -261,7 +262,7 @@ r.post("/:id/read", requireAuth, async (req, res, next) => {
     }
 
     const result = await NotificationsFeedService.markNotificationAsRead(req.user!.id, notificationId);
-    
+
     if (!result) {
       return res.status(404).json({ success: false, error: "Notification not found" });
     }
@@ -287,7 +288,7 @@ r.delete("/:id", requireAuth, async (req, res, next) => {
     }
 
     const deleted = await NotificationsFeedService.deleteNotification(req.user!.id, notificationId);
-    
+
     if (!deleted) {
       return res.status(404).json({ success: false, error: "Notification not found" });
     }

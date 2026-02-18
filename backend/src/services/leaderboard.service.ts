@@ -1,4 +1,9 @@
 import { prisma } from "../lib/services.js";
+import {
+  cacheLeaderboard,
+  getCachedLeaderboard,
+  invalidateAllLeaderboards,
+} from "./cache.service.js";
 
 interface LeaderboardEntry {
   rank: number;
@@ -17,6 +22,12 @@ export async function getDailyLeaderboard(userId: string, limit = 20): Promise<{
   entries: LeaderboardEntry[];
   current_user_rank: number | null;
 }> {
+  // Try cache first
+  const cached = await getCachedLeaderboard("daily", userId);
+  if (cached) {
+    return cached;
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -82,7 +93,12 @@ export async function getDailyLeaderboard(userId: string, limit = 20): Promise<{
     }
   }
 
-  return { entries, current_user_rank: currentUserRank };
+  const result = { entries, current_user_rank: currentUserRank };
+
+  // Cache for 5 minutes
+  await cacheLeaderboard("daily", userId, result, 300);
+
+  return result;
 }
 
 /**
@@ -92,6 +108,12 @@ export async function getWeeklyLeaderboard(userId: string, limit = 20): Promise<
   entries: LeaderboardEntry[];
   current_user_rank: number | null;
 }> {
+  // Try cache first
+  const cached = await getCachedLeaderboard("weekly", userId);
+  if (cached) {
+    return cached;
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const startOfWeek = new Date(today);
@@ -135,7 +157,12 @@ export async function getWeeklyLeaderboard(userId: string, limit = 20): Promise<
 
   const currentUserRank = entries.find(e => e.is_current_user)?.rank ?? null;
 
-  return { entries, current_user_rank: currentUserRank };
+  const result = { entries, current_user_rank: currentUserRank };
+
+  // Cache for 5 minutes
+  await cacheLeaderboard("weekly", userId, result, 300);
+
+  return result;
 }
 
 /**
@@ -145,6 +172,12 @@ export async function getFriendsLeaderboard(userId: string): Promise<{
   entries: LeaderboardEntry[];
   current_user_rank: number | null;
 }> {
+  // Try cache first
+  const cached = await getCachedLeaderboard("friends", userId);
+  if (cached) {
+    return cached;
+  }
+
   // Get all buddy IDs
   const buddyLinks = await prisma.buddy_links.findMany({
     where: {
@@ -203,7 +236,12 @@ export async function getFriendsLeaderboard(userId: string): Promise<{
 
   const currentUserRank = entries.find(e => e.is_current_user)?.rank ?? null;
 
-  return { entries, current_user_rank: currentUserRank };
+  const result = { entries, current_user_rank: currentUserRank };
+
+  // Cache for 5 minutes
+  await cacheLeaderboard("friends", userId, result, 300);
+
+  return result;
 }
 
 /**

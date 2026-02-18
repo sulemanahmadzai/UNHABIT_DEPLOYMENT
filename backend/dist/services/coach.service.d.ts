@@ -28,16 +28,16 @@ export declare function getSessionWithMessages(userId: string, sessionId: string
     coach_actions: {
         created_at: Date;
         id: string;
-        session_id: string;
         action: string;
+        session_id: string;
         payload: Prisma.JsonValue | null;
     }[];
     coach_messages: {
+        role: import("@prisma/client").$Enums.coach_role;
         created_at: Date;
         id: string;
         meta: Prisma.JsonValue | null;
         content: string;
-        role: import("@prisma/client").$Enums.coach_role;
         session_id: string;
     }[];
 } & {
@@ -50,11 +50,11 @@ export declare function getSessionWithMessages(userId: string, sessionId: string
  * Add a message to a session
  */
 export declare function addMessage(sessionId: string, role: string, content: string, meta?: Record<string, unknown> | null): Promise<{
+    role: import("@prisma/client").$Enums.coach_role;
     created_at: Date;
     id: string;
     meta: Prisma.JsonValue | null;
     content: string;
-    role: import("@prisma/client").$Enums.coach_role;
     session_id: string;
 }>;
 /**
@@ -63,8 +63,8 @@ export declare function addMessage(sessionId: string, role: string, content: str
 export declare function saveAction(sessionId: string, action: string, payload?: Record<string, unknown> | null): Promise<{
     created_at: Date;
     id: string;
-    session_id: string;
     action: string;
+    session_id: string;
     payload: Prisma.JsonValue | null;
 }>;
 /**
@@ -81,11 +81,11 @@ export declare function endSession(userId: string, sessionId: string): Promise<{
  */
 export declare function getRecentSessionContext(userId: string): Promise<({
     coach_messages: {
+        role: import("@prisma/client").$Enums.coach_role;
         created_at: Date;
         id: string;
         meta: Prisma.JsonValue | null;
         content: string;
-        role: import("@prisma/client").$Enums.coach_role;
         session_id: string;
     }[];
 } & {

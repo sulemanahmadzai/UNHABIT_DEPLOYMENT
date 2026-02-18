@@ -9,6 +9,8 @@ export declare function getBuddies(userId: string): Promise<{
     buddy_avatar: string | null;
     status: string;
     started_at: Date;
+    streak_days: number;
+    daily_status: "COMPLETED" | "PENDING" | "MISSED";
 }[]>;
 /**
  * Create an invite link
@@ -44,8 +46,8 @@ export declare function acceptInvite(userId: string, inviteCode: string): Promis
     id: string;
     started_at: Date;
     status: string;
-    user_a: string;
     user_b: string;
+    user_a: string;
 } | null>;
 /**
  * Submit a check-in
@@ -130,4 +132,113 @@ export declare function getWeeklySummary(userId: string): Promise<{
  * Remove buddy link
  */
 export declare function removeBuddyLink(userId: string, linkId: string): Promise<boolean>;
+/**
+ * Get buddy quick view for home screen
+ */
+export declare function getQuickView(userId: string): Promise<{
+    total_buddies: number;
+    completed_today: number;
+    buddy_avatars: {
+        user_id: string;
+        name: string | null;
+        avatar_url: string | null;
+    }[];
+}>;
+/**
+ * Get buddy profile with their shared habit progress
+ */
+export declare function getBuddyProfile(userId: string, buddyLinkId: string): Promise<{
+    buddy_link_id: string;
+    user_id: string;
+    name: string;
+    avatar_url: string | null | undefined;
+    member_since: string | null | undefined;
+    habit: string | null;
+    journey: {
+        current_day: number;
+        total_days: number;
+        progress: number;
+        completed_today: boolean;
+    } | null;
+    streak: {
+        current: number;
+        longest: number;
+        weekly_completion: Record<string, boolean>;
+    };
+    level: {
+        current: number;
+        name: string;
+        progress: number;
+        total_xp: number;
+    };
+    habit_health: number;
+    recent_activity: {
+        date: Date;
+        note: string | null;
+    }[];
+    started_at: Date;
+} | null>;
+/**
+ * Send a quick nudge to buddy
+ */
+export declare function sendNudge(userId: string, buddyLinkId: string, message: string): Promise<{
+    created_at: Date;
+    id: string;
+    message: string;
+    buddy_link_id: string;
+    sender_id: string;
+} | null>;
+/**
+ * Get nudges received
+ */
+export declare function getNudges(userId: string, limit?: number): Promise<{
+    id: string;
+    sender: {
+        user_id: string;
+        name: string;
+        avatar_url: string | null | undefined;
+    };
+    message: string;
+    created_at: Date;
+}[]>;
+/**
+ * Resend an invite
+ */
+export declare function resendInvite(userId: string, inviteId: string): Promise<{
+    created_at: Date;
+    id: string;
+    status: string;
+    invite_code: string;
+    target_contact: string | null;
+    expires_at: Date | null;
+    inviter_id: string;
+} | null>;
+/**
+ * Cancel an invite
+ */
+export declare function cancelInvite(userId: string, inviteId: string): Promise<boolean>;
+/**
+ * Get invite by code
+ */
+export declare function getInviteByCode(inviteCode: string): Promise<{
+    created_at: Date;
+    id: string;
+    status: string;
+    invite_code: string;
+    target_contact: string | null;
+    expires_at: Date | null;
+    inviter_id: string;
+} | null>;
+/**
+ * Get invite URL
+ */
+export declare function getInviteUrl(inviteCode: string, baseUrl?: string): string;
+/**
+ * Get buddies who completed today
+ */
+export declare function getBuddiesCompletedToday(userId: string): Promise<{
+    user_id: string;
+    name: string;
+    avatar_url: string | null;
+}[]>;
 //# sourceMappingURL=buddies.service.d.ts.map

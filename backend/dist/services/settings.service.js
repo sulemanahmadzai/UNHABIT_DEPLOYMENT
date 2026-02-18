@@ -1,3 +1,7 @@
+/**
+ * Settings Service
+ * Handles privacy, share preferences, and device management
+ */
 import { db } from "../lib/services.js";
 /**
  * Get privacy settings
@@ -10,8 +14,6 @@ export async function getPrivacySettings(userId) {
         user_id: userId,
         share_with_buddy: false,
         allow_research: false,
-        data_export_requested_at: null,
-        data_delete_requested_at: null,
     });
 }
 /**
@@ -110,7 +112,8 @@ export async function unregisterDevice(userId, deviceId) {
  * Request data export
  */
 export async function requestDataExport(userId) {
-    return db.privacy_settings.upsert({
+    // Update privacy settings to mark export requested
+    await db.privacy_settings.upsert({
         where: { user_id: userId },
         create: {
             user_id: userId,
@@ -118,15 +121,19 @@ export async function requestDataExport(userId) {
         },
         update: {
             data_export_requested_at: new Date(),
-            updated_at: new Date(),
         },
     });
+    return {
+        requested_at: new Date(),
+        status: "pending",
+    };
 }
 /**
  * Request account deletion
  */
 export async function requestAccountDeletion(userId) {
-    return db.privacy_settings.upsert({
+    // Update privacy settings to mark deletion requested
+    await db.privacy_settings.upsert({
         where: { user_id: userId },
         create: {
             user_id: userId,
@@ -134,8 +141,11 @@ export async function requestAccountDeletion(userId) {
         },
         update: {
             data_delete_requested_at: new Date(),
-            updated_at: new Date(),
         },
     });
+    return {
+        requested_at: new Date(),
+        status: "pending",
+    };
 }
 //# sourceMappingURL=settings.service.js.map

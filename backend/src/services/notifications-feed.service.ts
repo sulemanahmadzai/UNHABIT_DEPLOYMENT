@@ -12,9 +12,9 @@ export interface NotificationItem {
   message: string;
   created_at: Date;
   is_read: boolean;
-  icon_name?: string;
-  action_data?: Record<string, unknown>;
-  related_entity_id?: string;
+  icon_name?: string | undefined;
+  action_data?: Record<string, unknown> | undefined;
+  related_entity_id?: string | undefined;
 }
 
 /**
@@ -23,10 +23,10 @@ export interface NotificationItem {
 export async function getNotifications(
   userId: string,
   options: {
-    status?: "read" | "unread";
-    type?: string;
-    limit?: number;
-    offset?: number;
+    status?: "read" | "unread" | undefined;
+    type?: string | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
   } = {}
 ) {
   const { status, type, limit = 50, offset = 0 } = options;
@@ -145,7 +145,7 @@ export async function getNotifications(
 
     const buddyNotifications: NotificationItem[] = buddyNudges.map((nudge) => {
       const buddyProfile = profileMap.get(nudge.sender_id);
-      
+
       return {
         id: nudge.id,
         type: "buddy_nudge",

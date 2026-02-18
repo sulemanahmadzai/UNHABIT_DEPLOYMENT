@@ -8,7 +8,7 @@ import { addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
 export async function getBuddies(userId: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const links = await db.buddy_links.findMany({
     where: {
       OR: [{ user_a: userId }, { user_b: userId }],
@@ -42,7 +42,7 @@ export async function getBuddies(userId: string) {
       where: { user_id: { in: buddyIds } },
     }),
     db.streaks.findMany({
-      where: { 
+      where: {
         user_id: { in: buddyIds },
         kind: "task_completion"
       },
@@ -102,7 +102,7 @@ export async function getBuddies(userId: string) {
 
     // Determine daily status: COMPLETED, PENDING, or MISSED
     let dailyStatus: "COMPLETED" | "PENDING" | "MISSED" = "PENDING";
-    
+
     if (completedToday) {
       dailyStatus = "COMPLETED";
     } else if (activeJourney && activeJourney.start_date) {
@@ -111,7 +111,7 @@ export async function getBuddies(userId: string) {
       startDate.setHours(0, 0, 0, 0);
       const diffDays = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       const todayDay = activeJourney.journey_days.find(d => d.day_number === diffDays + 1);
-      
+
       if (todayDay && todayDay.journey_tasks.length > 0) {
         // Has tasks but not completed - could be PENDING or MISSED
         // For simplicity, mark as PENDING if it's still today, MISSED if past
@@ -587,7 +587,7 @@ export async function getBuddyProfile(userId: string, buddyLinkId: string) {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   if (activeJourney && activeJourney.start_date) {
     const startDate = new Date(activeJourney.start_date);
     startDate.setHours(0, 0, 0, 0);
@@ -620,7 +620,7 @@ export async function getBuddyProfile(userId: string, buddyLinkId: string) {
     where: { user_id: buddyUserId },
   });
   const totalXP = Number(pointBalance?.total_points ?? 0);
-  
+
   // Calculate level (Level formula: Each level requires level * 100 XP)
   let level = 1;
   let xpForCurrentLevel = 0;
@@ -635,7 +635,7 @@ export async function getBuddyProfile(userId: string, buddyLinkId: string) {
       break;
     }
   }
-  const levelProgress = xpForNextLevel > xpForCurrentLevel 
+  const levelProgress = xpForNextLevel > xpForCurrentLevel
     ? Math.round(((totalXP - xpForCurrentLevel) / (xpForNextLevel - xpForCurrentLevel)) * 100)
     : 0;
 
@@ -663,21 +663,21 @@ export async function getBuddyProfile(userId: string, buddyLinkId: string) {
     const startDate = new Date(activeJourney.start_date);
     startDate.setHours(0, 0, 0, 0);
     const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Monday
-    
+
     for (let i = 0; i < 7; i++) {
       const checkDate = new Date(weekStart);
       checkDate.setDate(weekStart.getDate() + i);
       const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i];
-      
+
       const diffDays = Math.floor((checkDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
       const dayData = activeJourney.journey_days.find(d => d.day_number === diffDays + 1);
-      
-      if (dayData && dayData.journey_tasks.length > 0) {
+
+      if (dayName && dayData && dayData.journey_tasks.length > 0) {
         const allCompleted = dayData.journey_tasks.every(
           t => t.user_task_progress.some(p => p.status === "completed")
         );
         weeklyCompletion[dayName] = allCompleted;
-      } else {
+      } else if (dayName) {
         weeklyCompletion[dayName] = false;
       }
     }

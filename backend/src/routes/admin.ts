@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireAdmin } from "../middlewares/auth.js";
 import * as AdminService from "../services/admin.service.js";
+import { removeUndefined } from "../utils/object.js";
 
 const r = Router();
 
@@ -34,7 +35,7 @@ r.post("/categories", async (req, res, next) => {
       description: z.string().max(500).optional(),
     });
     const data = schema.parse(req.body);
-    const category = await AdminService.createCategory(data);
+    const category = await AdminService.createCategory(removeUndefined(data));
     res.status(201).json({ success: true, data: category });
   } catch (error) {
     next(error);
@@ -56,7 +57,7 @@ r.put("/categories/:id", async (req, res, next) => {
       description: z.string().max(500).optional(),
     });
     const data = schema.parse(req.body);
-    const category = await AdminService.updateCategory(id, data);
+    const category = await AdminService.updateCategory(id, removeUndefined(data));
     res.json({ success: true, data: category });
   } catch (error) {
     next(error);
@@ -132,7 +133,7 @@ r.post("/templates", async (req, res, next) => {
       category_id: z.string().uuid().optional(),
     });
     const data = schema.parse(req.body);
-    const template = await AdminService.createTemplate(data);
+    const template = await AdminService.createTemplate(removeUndefined(data));
     res.status(201).json({ success: true, data: template });
   } catch (error: any) {
     if (error.name === 'ZodError' || error.issues) {
@@ -162,7 +163,7 @@ r.put("/templates/:id", async (req, res, next) => {
       category_id: z.string().uuid().optional(),
     });
     const data = schema.parse(req.body);
-    const template = await AdminService.updateTemplate(id, data);
+    const template = await AdminService.updateTemplate(id, removeUndefined(data));
     res.json({ success: true, data: template });
   } catch (error) {
     next(error);
@@ -216,7 +217,7 @@ r.post("/badges", async (req, res, next) => {
       tier: z.string().max(50).optional(),
     });
     const data = schema.parse(req.body);
-    const badge = await AdminService.createBadgeDefinition(data);
+    const badge = await AdminService.createBadgeDefinition(removeUndefined(data));
     res.status(201).json({ success: true, data: badge });
   } catch (error: any) {
     if (error.name === 'ZodError' || error.issues) {
@@ -255,7 +256,7 @@ r.put("/badges/:id", async (req, res, next) => {
       tier: z.string().max(50).optional(),
     });
     const data = schema.parse(req.body);
-    const badge = await AdminService.updateBadgeDefinition(id, data);
+    const badge = await AdminService.updateBadgeDefinition(id, removeUndefined(data));
     res.json({ success: true, data: badge });
   } catch (error) {
     next(error);
@@ -309,7 +310,7 @@ r.post("/badge-rules", async (req, res, next) => {
       is_active: z.boolean().optional(),
     });
     const data = schema.parse(req.body);
-    const rule = await AdminService.createBadgeRule(data);
+    const rule = await AdminService.createBadgeRule(removeUndefined(data));
     res.status(201).json({ success: true, data: rule });
   } catch (error) {
     next(error);
@@ -333,7 +334,7 @@ r.put("/badge-rules/:id", async (req, res, next) => {
       is_active: z.boolean().optional(),
     });
     const data = schema.parse(req.body);
-    const rule = await AdminService.updateBadgeRule(id, data);
+    const rule = await AdminService.updateBadgeRule(id, removeUndefined(data));
     res.json({ success: true, data: rule });
   } catch (error) {
     next(error);
@@ -386,7 +387,7 @@ r.post("/point-rules", async (req, res, next) => {
       conditions: z.record(z.string(), z.unknown()).optional(),
     });
     const data = schema.parse(req.body);
-    const rule = await AdminService.createPointRule(data);
+    const rule = await AdminService.createPointRule(removeUndefined(data));
     res.status(201).json({ success: true, data: rule });
   } catch (error: any) {
     if (error.name === 'ZodError' || error.issues) {
@@ -424,7 +425,7 @@ r.put("/point-rules/:id", async (req, res, next) => {
       conditions: z.record(z.string(), z.unknown()).optional(),
     });
     const data = schema.parse(req.body);
-    const rule = await AdminService.updatePointRule(id, data);
+    const rule = await AdminService.updatePointRule(id, removeUndefined(data));
     res.json({ success: true, data: rule });
   } catch (error) {
     next(error);
@@ -499,7 +500,7 @@ r.put("/settings/:key", async (req, res, next) => {
       description: z.string().max(500).optional(),
     });
     const data = schema.parse(req.body);
-    const setting = await AdminService.upsertAppSetting(key, data, req.user!.id);
+    const setting = await AdminService.upsertAppSetting(key, removeUndefined(data), req.user!.id);
     res.json({ success: true, data: setting });
   } catch (error) {
     next(error);

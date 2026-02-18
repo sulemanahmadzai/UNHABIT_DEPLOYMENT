@@ -11,7 +11,7 @@ const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // In development, allow all localhost origins and any configured origins
       if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
         // Allow requests with no origin (like mobile apps or curl)
@@ -35,7 +35,7 @@ app.use(
       // Production: use configured origins only
       if (process.env.CORS_ORIGIN) {
         const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(o => o.trim());
-        if (allowedOrigins.includes(origin)) {
+        if (origin && allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));

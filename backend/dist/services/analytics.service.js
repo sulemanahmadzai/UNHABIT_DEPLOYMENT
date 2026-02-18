@@ -212,4 +212,128 @@ export async function exportUserData(userId, format) {
     }
     return exportData;
 }
+/**
+ * Get missed days summary
+ */
+export async function getMissedDaysSummary(userId) {
+    const activeJourney = await db.journeys.findFirst({
+        where: { user_id: userId, status: "active" },
+        include: {
+            journey_days: {
+                include: {
+                    journey_tasks: {
+                        include: {
+                            user_task_progress: {
+                                where: { user_id: userId, status: "completed" },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    });
+    if (!activeJourney || !activeJourney.start_date) {
+        return {
+            total_missed: 0,
+            last_missed_days_ago: null,
+        };
+    }
+    const startDate = new Date(activeJourney.start_date);
+    startDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let totalMissed = 0;
+    let lastMissedDate = null;
+    // Check each day from start to today
+    for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+        const dayNumber = Math.floor((d.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        const dayData = activeJourney.journey_days.find(jd => jd.day_number === dayNumber);
+        if (dayData && dayData.journey_tasks.length > 0) {
+            // Check if all tasks for this day were completed
+            const allCompleted = dayData.journey_tasks.every(task => task.user_task_progress.some(p => p.status === "completed"));
+            if (!allCompleted) {
+                totalMissed++;
+                lastMissedDate = new Date(d);
+            }
+        }
+    }
+    // Calculate days since last missed
+    let lastMissedDaysAgo = null;
+    if (lastMissedDate) {
+        const diffTime = today.getTime() - lastMissedDate.getTime();
+        lastMissedDaysAgo = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    }
+    return {
+        total_missed: totalMissed,
+        last_missed_days_ago: lastMissedDaysAgo,
+    };
+}
+/**
+ * Get habit health trend (historical data)
+ */
+export async function getHabitHealthTrend(userId, days = 7) {
+    const activeJourney = await db.journeys.findFirst({
+        where: { user_id: userId, status: "active" },
+        include: {
+            journey_days: {
+                include: {
+                    journey_tasks: {
+                        include: {
+                            user_task_progress: {
+                                where: { user_id: userId },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    });
+    if (!activeJourney || !activeJourney.start_date) {
+        return {
+            trend: [],
+            current_health: 0,
+            change_percent: 0,
+        };
+    }
+    const startDate = new Date(activeJourney.start_date);
+    startDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysAgo = new Date(today);
+    daysAgo.setDate(daysAgo.getDate() - days);
+    const trend = [];
+    // Calculate health for each day in the range
+    for (let d = new Date(Math.max(startDate.getTime(), daysAgo.getTime())); d <= today; d.setDate(d.getDate() + 1)) {
+        const dayNumber = Math.floor((d.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        const dayData = activeJourney.journey_days.find(jd => jd.day_number === dayNumber);
+        if (dayData) {
+            let totalTasks = 0;
+            let completedTasks = 0;
+            for (const task of dayData.journey_tasks) {
+                totalTasks++;
+                if (task.user_task_progress.some(p => p.status === "completed")) {
+                    completedTasks++;
+                }
+            }
+            const health = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+            const dateStr = d.toISOString().split('T')[0];
+            if (dateStr) {
+                trend.push({
+                    date: dateStr,
+                    health,
+                });
+            }
+        }
+    }
+    const currentHealth = trend.length > 0 && trend[trend.length - 1] ? trend[trend.length - 1].health : 0;
+    const previousHealth = trend.length > 1 && trend[0] ? trend[0].health : currentHealth;
+    const changePercent = previousHealth > 0
+        ? Math.round(((currentHealth - previousHealth) / previousHealth) * 100)
+        : 0;
+    return {
+        trend,
+        current_health: currentHealth,
+        change_percent: changePercent,
+    };
+}
 //# sourceMappingURL=analytics.service.js.map

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as SettingsService from "../services/settings.service.js";
+import * as ComprehensiveSettingsService from "../services/settings-comprehensive.service.js";
+import { removeUndefined } from "../utils/object.js";
 const r = Router();
 /**
  * GET /api/settings/privacy
@@ -27,10 +29,10 @@ r.put("/privacy", requireAuth, async (req, res, next) => {
             allow_research: z.boolean().optional(),
         });
         const parsed = schema.parse(req.body);
-        const settings = await SettingsService.updatePrivacySettings(req.user.id, {
+        const settings = await SettingsService.updatePrivacySettings(req.user.id, removeUndefined({
             share_with_buddy: parsed.share_with_buddy,
             allow_research: parsed.allow_research,
-        });
+        }));
         res.json({ success: true, data: settings });
     }
     catch (error) {
@@ -61,10 +63,10 @@ r.put("/share", requireAuth, async (req, res, next) => {
             share_streaks: z.boolean().optional(),
         });
         const parsed = schema.parse(req.body);
-        const prefs = await SettingsService.updateSharePreferences(req.user.id, {
+        const prefs = await SettingsService.updateSharePreferences(req.user.id, removeUndefined({
             share_metrics: parsed.share_metrics,
             share_streaks: parsed.share_streaks,
-        });
+        }));
         res.json({ success: true, data: prefs });
     }
     catch (error) {
@@ -91,7 +93,7 @@ r.get("/devices", requireAuth, async (req, res, next) => {
 r.post("/devices", requireAuth, async (req, res, next) => {
     try {
         const schema = z.object({
-            platform: z.enum(["ios", "android", "web"]),
+            platform: z.enum(["ios", "android"]), // Database constraint only allows ios/android
             push_token: z.string().optional(),
             app_version: z.string().optional(),
         });
@@ -104,6 +106,12 @@ r.post("/devices", requireAuth, async (req, res, next) => {
         res.status(201).json({ success: true, data: device });
     }
     catch (error) {
+        if (error.name === 'ZodError' || error.issues) {
+            return res.status(400).json({
+                success: false,
+                error: `Validation error: ${error.issues?.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ') || error.message}`,
+            });
+        }
         next(error);
     }
 });
@@ -148,6 +156,52 @@ r.post("/delete-request", requireAuth, async (req, res, next) => {
     try {
         const result = await SettingsService.requestAccountDeletion(req.user.id);
         res.json({ success: true, data: result });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/settings
+ * Get all user settings (comprehensive)
+ */
+r.get("/", requireAuth, async (req, res, next) => {
+    try {
+        const settings = await ComprehensiveSettingsService.getAllSettings(req.user.id);
+        res.json({ success: true, data: settings });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/settings/ai-coach-preferences
+ * Get AI Coach preferences
+ */
+r.get("/ai-coach-preferences", requireAuth, async (req, res, next) => {
+    try {
+        const prefs = await ComprehensiveSettingsService.getAICoachPreferences(req.user.id);
+        res.json({ success: true, data: prefs });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/settings/ai-coach-preferences
+ * Update AI Coach preferences
+ */
+r.put("/ai-coach-preferences", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            enabled: z.boolean().optional(),
+            tone: z.enum(["supportive", "motivational", "direct"]).optional(),
+            frequency: z.enum(["daily", "weekly", "on_demand"]).optional(),
+            topics: z.array(z.string()).optional(),
+        });
+        const data = schema.parse(req.body);
+        const prefs = await ComprehensiveSettingsService.updateAICoachPreferences(req.user.id, removeUndefined(data));
+        res.json({ success: true, data: prefs });
     }
     catch (error) {
         next(error);

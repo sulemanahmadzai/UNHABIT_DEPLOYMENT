@@ -3,10 +3,30 @@
  * 
  * This service proxies requests to the FastAPI AI service
  * All mappings are based on the AI project's api_main.py and schemas.py
+ * 
+ * Features:
+ * - Response caching for expensive AI operations
+ * - Idempotency protection
+ * - Retry logic with exponential backoff
  */
+
+import redis from "../db/redis.js";
+import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "30000", 10);
+
+// Cache TTLs for different AI endpoints (in seconds)
+const CACHE_TTL = {
+  ONBOARDING: 3600, // 1 hour
+  CANONICALIZE: 86400, // 24 hours (stable)
+  SAFETY: 3600, // 1 hour
+  QUIZ_FORM: 3600, // 1 hour
+  QUIZ_SUMMARY: 86400, // 24 hours (deterministic)
+  PLAN_21D: 86400, // 24 hours (expensive, deterministic)
+  COACH: 0, // No cache (conversational)
+  WHY_DAY: 86400, // 24 hours (stable)
+};
 
 interface AIServiceResponse<T = unknown> {
   success: boolean;
@@ -99,11 +119,11 @@ interface QuizSummaryRequest {
     questions: Array<{
       id: string;
       question: string;
-      helper_text?: string | null;
+      helper_text?: string | null | undefined;
       options: Array<{
         id: string;
         label: string;
-        helper_text?: string | null;
+        helper_text?: string | null | undefined;
       }>;
     }>;
   } | undefined;
@@ -187,14 +207,25 @@ interface WhyDayResponse {
 }
 
 /**
- * Make a request to the AI service with retry logic
+ * Make a request to the AI service with retry logic and caching
  */
 async function makeRequest<T>(
   endpoint: string,
   body: unknown,
-  retries = 2
+  retries = 2,
+  cacheTTL = 0 // 0 means no cache
 ): Promise<AIServiceResponse<T>> {
   const url = `${AI_SERVICE_URL}${endpoint}`;
+
+  // Check cache if TTL is set
+  if (cacheTTL > 0) {
+    const requestHash = redis.hash(body);
+    const cached = await getCachedAIResponse(endpoint, requestHash);
+    if (cached !== null) {
+      console.log(`✅ AI cache hit: ${endpoint}`);
+      return { success: true, data: cached as T };
+    }
+  }
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -218,6 +249,14 @@ async function makeRequest<T>(
       }
 
       const data = await response.json() as T;
+
+      // Cache successful response if TTL is set
+      if (cacheTTL > 0) {
+        const requestHash = redis.hash(body);
+        await cacheAIResponse(endpoint, requestHash, data, cacheTTL);
+        console.log(`💾 AI response cached: ${endpoint} (TTL: ${cacheTTL}s)`);
+      }
+
       return { success: true, data };
     } catch (error) {
       if (attempt === retries) {
@@ -244,7 +283,7 @@ export async function startOnboarding(
   const aiServiceRequest = {
     habit_description: request.user_input,
   };
-  return makeRequest<OnboardingStartResponse>("/onboarding/start", aiServiceRequest);
+  return makeRequest<OnboardingStartResponse>("/onboarding/start", aiServiceRequest, 2, CACHE_TTL.ONBOARDING);
 }
 
 /**
@@ -258,7 +297,7 @@ export async function canonicalizeHabit(
   const aiServiceRequest = {
     habit_description: request.user_input,
   };
-  return makeRequest<CanonicalizeHabitResponse>("/canonicalize-habit", aiServiceRequest);
+  return makeRequest<CanonicalizeHabitResponse>("/canonicalize-habit", aiServiceRequest, 2, CACHE_TTL.CANONICALIZE);
 }
 
 /**
@@ -274,7 +313,7 @@ export async function assessSafety(
       habit_description: request.user_input,
     },
   };
-  return makeRequest<SafetyResponse>("/safety", aiServiceRequest);
+  return makeRequest<SafetyResponse>("/safety", aiServiceRequest, 2, CACHE_TTL.SAFETY);
 }
 
 /**
@@ -290,11 +329,11 @@ export async function generateQuizForm(
   // 2. Fall back to user_context if provided (this contains the actual user's habit description)
   // 3. Last resort: create a descriptive phrase from the category
   let habitDescription = request.habit_description;
-  
+
   if (!habitDescription && request.user_context) {
     habitDescription = request.user_context;
   }
-  
+
   if (!habitDescription) {
     // Convert category to a human-readable description
     const categoryDescriptions: Record<string, string> = {
@@ -321,7 +360,7 @@ export async function generateQuizForm(
       habit_description: habitDescription,
     },
   };
-  return makeRequest<QuizFormResponse>("/quiz-form", aiServiceRequest);
+  return makeRequest<QuizFormResponse>("/quiz-form", aiServiceRequest, 2, CACHE_TTL.QUIZ_FORM);
 }
 
 /**
@@ -349,7 +388,7 @@ export async function getQuizSummary(
   // 1. Use explicit habit_description if provided
   // 2. Fall back to creating one from category
   let habitDescription = request.habit_description;
-  
+
   if (!habitDescription) {
     // Convert category to a human-readable description
     const categoryDescriptions: Record<string, string> = {
@@ -378,7 +417,7 @@ export async function getQuizSummary(
       user_quiz_answers: normalizedAnswers,
     },
   };
-  return makeRequest<QuizSummaryResponse>("/quiz-summary", aiServiceRequest);
+  return makeRequest<QuizSummaryResponse>("/quiz-summary", aiServiceRequest, 2, CACHE_TTL.QUIZ_SUMMARY);
 }
 
 /**
@@ -394,10 +433,10 @@ export async function generatePlan21D(
   // Parse quiz_summary if it's a string (JSON)
   let quizSummary;
   try {
-    let parsed = typeof request.quiz_summary === 'string' 
-      ? JSON.parse(request.quiz_summary) 
+    let parsed = typeof request.quiz_summary === 'string'
+      ? JSON.parse(request.quiz_summary)
       : request.quiz_summary;
-    
+
     // Handle wrapped response format: {status, statusText, data: {success, data: {...}}}
     // Extract the actual quiz summary from nested structure
     if (parsed && typeof parsed === 'object') {
@@ -414,7 +453,7 @@ export async function generatePlan21D(
       }
       // If it has user_habit_raw directly, it's already the right format
     }
-    
+
     quizSummary = parsed;
   } catch (e) {
     // If parsing fails, create a minimal quiz_summary from habit_goal
@@ -462,14 +501,14 @@ export async function generatePlan21D(
     },
   };
 
-  const result = await makeRequest<Plan21DResponse>("/plan-21d", aiServiceRequest);
-  
+  const result = await makeRequest<Plan21DResponse>("/plan-21d", aiServiceRequest, 2, CACHE_TTL.PLAN_21D);
+
   // If main endpoint fails, try fallback
   if (!result.success) {
     console.log("Primary plan generation failed, trying fallback...");
-    return makeRequest<Plan21DResponse>("/plan-21d-fallback", aiServiceRequest);
+    return makeRequest<Plan21DResponse>("/plan-21d-fallback", aiServiceRequest, 2, CACHE_TTL.PLAN_21D);
   }
-  
+
   return result;
 }
 
@@ -502,7 +541,7 @@ export async function chat(
     },
   };
 
-  return makeRequest<CoachResponse>("/coach", aiServiceRequest);
+  return makeRequest<CoachResponse>("/coach", aiServiceRequest, 2, CACHE_TTL.COACH); // No cache for chat
 }
 
 /**
@@ -526,7 +565,7 @@ export async function explainDay(
     day_number: request.day_number,
   };
 
-  return makeRequest<WhyDayResponse>("/why-day", aiServiceRequest);
+  return makeRequest<WhyDayResponse>("/why-day", aiServiceRequest, 2, CACHE_TTL.WHY_DAY);
 }
 
 /**

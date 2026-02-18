@@ -12,7 +12,7 @@ export interface DailyChallenge {
   description: string;
   reward_xp: number;
   challenge_type: "speed" | "consistency" | "streak" | "completion";
-  target_value?: number;
+  target_value?: number | undefined;
   expires_at: Date;
 }
 
@@ -50,7 +50,7 @@ export async function getDailyChallenge(userId: string): Promise<DailyChallenge 
     "consistency",
     "completion",
   ];
-  const randomType = challengeTypes[Math.floor(Math.random() * challengeTypes.length)];
+  const randomType = challengeTypes[Math.floor(Math.random() * challengeTypes.length)] || "completion";
 
   let title = "Today's Challenge";
   let description = "Finish today's main task 15% faster";
@@ -80,7 +80,7 @@ export async function getDailyChallenge(userId: string): Promise<DailyChallenge 
   // For now, return the challenge without storing
   // The ID is deterministic based on userId and date, so same challenge returned for same day
   const challengeId = `challenge-${userId}-${today.toISOString().split('T')[0]}`;
-  
+
   return {
     id: challengeId,
     title,
@@ -98,7 +98,7 @@ export async function getDailyChallenge(userId: string): Promise<DailyChallenge 
 export async function acceptChallenge(userId: string, challengeId: string) {
   // Verify challenge exists and is valid
   const challenge = await getDailyChallenge(userId);
-  
+
   if (!challenge || challenge.id !== challengeId) {
     return null;
   }
@@ -118,7 +118,7 @@ export async function acceptChallenge(userId: string, challengeId: string) {
  */
 export async function completeChallenge(userId: string, challengeId: string) {
   const challenge = await getDailyChallenge(userId);
-  
+
   if (!challenge || challenge.id !== challengeId) {
     return null;
   }

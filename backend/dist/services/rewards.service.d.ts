@@ -25,9 +25,9 @@ export declare function getPointsHistory(userId: string, limit: number, offset: 
 } & {
     user_id: string;
     id: string;
+    amount: number;
     rule_id: string | null;
     source_event_id: string | null;
-    amount: number;
     awarded_at: Date;
 })[]>;
 /**
@@ -122,4 +122,80 @@ export declare function awardBadge(userId: string, badgeId: string, evidence?: R
     earned_at: Date;
     evidence: Prisma.JsonValue | null;
 }>;
+/**
+ * Get today's XP
+ */
+export declare function getTodayXP(userId: string): Promise<{
+    total: number;
+    breakdown: Record<string, number>;
+    transactions: number;
+}>;
+/**
+ * Get user level and progress
+ */
+export declare function getLevelInfo(userId: string): Promise<{
+    level: number;
+    total_xp: number;
+    current_level_xp: number;
+    xp_for_next_level: number;
+    xp_remaining: number;
+    progress_percent: number;
+    next_milestone: {
+        level: number;
+        reward: string;
+    } | undefined;
+}>;
+/**
+ * Get badge gallery with progress
+ */
+export declare function getBadgeGallery(userId: string): Promise<{
+    earned: {
+        id: string;
+        slug: string;
+        name: string;
+        description: string | null;
+        icon_url: string | null;
+        category: string | null;
+        tier: string | null;
+        earned: boolean;
+        earned_at: Date | undefined;
+        progress: number;
+        current: number;
+        required: number;
+        days_left: number | null;
+    }[];
+    locked: {
+        id: string;
+        slug: string;
+        name: string;
+        description: string | null;
+        icon_url: string | null;
+        category: string | null;
+        tier: string | null;
+        earned: boolean;
+        earned_at: Date | undefined;
+        progress: number;
+        current: number;
+        required: number;
+        days_left: number | null;
+    }[];
+    total_earned: number;
+    total_available: number;
+}>;
+/**
+ * Get next badge to earn
+ */
+export declare function getNextBadge(userId: string): Promise<{
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    icon_url: string | null;
+    category: string | null;
+    tier: string | null;
+    progress: number;
+    current: number;
+    required: number;
+    days_left: number;
+} | null>;
 //# sourceMappingURL=rewards.service.d.ts.map

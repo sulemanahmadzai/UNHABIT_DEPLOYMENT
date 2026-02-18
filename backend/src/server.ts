@@ -1,5 +1,6 @@
 import "dotenv/config";
 import app from "./app.js";
+import redis from "./db/redis.js";
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -84,10 +85,27 @@ const server = app.listen(PORT, () => {
   console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
 });
 
-process.on("SIGTERM", () => {
-  server.close(() => process.exit(0));
-});
+// Graceful shutdown handler
+async function gracefulShutdown(signal: string) {
+  console.log(`\n${signal} received, shutting down gracefully...`);
+  
+  // Close HTTP server
+  server.close(async () => {
+    console.log("✅ HTTP server closed");
+    
+    // Disconnect Redis
+    await redis.disconnect();
+    
+    console.log("👋 Shutdown complete");
+    process.exit(0);
+  });
 
-process.on("SIGINT", () => {
-  server.close(() => process.exit(0));
-});
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    console.error("⚠️  Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

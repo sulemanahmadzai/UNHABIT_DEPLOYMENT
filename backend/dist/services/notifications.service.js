@@ -154,4 +154,67 @@ export async function getDeliveryHistory(userId, limit, offset) {
     }
     return deliveries;
 }
+/**
+ * Add a task reminder
+ */
+export async function addTaskReminder(userId, data) {
+    // Verify task ownership
+    const task = await db.journey_tasks.findFirst({
+        where: { id: data.journey_task_id },
+        include: {
+            journey_days: {
+                include: { journeys: true },
+            },
+        },
+    });
+    if (!task || task.journey_days.journeys.user_id !== userId) {
+        return null;
+    }
+    return db.task_reminders.create({
+        data: {
+            user_id: userId,
+            journey_task_id: data.journey_task_id,
+            remind_at: data.remind_at,
+        },
+    });
+}
+/**
+ * Get task reminders
+ */
+export async function getTaskReminders(userId) {
+    return db.task_reminders.findMany({
+        where: {
+            user_id: userId,
+            remind_at: { gte: new Date() },
+        },
+        include: {
+            journey_tasks: {
+                select: {
+                    id: true,
+                    title: true,
+                    kind: true,
+                },
+            },
+        },
+        orderBy: { remind_at: "asc" },
+    });
+}
+/**
+ * Delete a task reminder
+ */
+export async function deleteTaskReminder(userId, reminderId) {
+    const reminder = await db.task_reminders.findFirst({
+        where: {
+            id: reminderId,
+            user_id: userId,
+        },
+    });
+    if (!reminder) {
+        return false;
+    }
+    await db.task_reminders.delete({
+        where: { id: reminderId },
+    });
+    return true;
+}
 //# sourceMappingURL=notifications.service.js.map

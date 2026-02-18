@@ -54,16 +54,16 @@ export async function getAICoachPreferences(userId: string) {
 export async function updateAICoachPreferences(
   userId: string,
   data: {
-    enabled?: boolean;
-    tone?: "supportive" | "motivational" | "direct";
-    frequency?: "daily" | "weekly" | "on_demand";
-    topics?: string[];
+    enabled?: boolean | undefined;
+    tone?: "supportive" | "motivational" | "direct" | undefined;
+    frequency?: "daily" | "weekly" | "on_demand" | undefined;
+    topics?: string[] | undefined;
   }
 ) {
   // For now, just return the updated preferences
   // In the future, store in profiles table or separate preferences table
   const current = await getAICoachPreferences(userId);
-  
+
   return {
     ...current,
     ...data,

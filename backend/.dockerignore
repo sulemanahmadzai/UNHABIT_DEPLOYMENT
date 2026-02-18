@@ -1,0 +1,11 @@
+node_modules
+npm-cache
+dist
+.env
+.git
+.gitignore
+*.md
+tests
+docs
+build-errors.txt
+openapi.json

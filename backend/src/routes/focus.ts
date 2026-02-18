@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as FocusService from "../services/focus.service.js";
+import { removeUndefined } from "../utils/object.js";
 
 const r = Router();
 
@@ -27,7 +28,7 @@ r.post("/start", requireAuth, async (req, res, next) => {
       });
     }
 
-    const session = await FocusService.startSession(req.user!.id, data);
+    const session = await FocusService.startSession(req.user!.id, removeUndefined(data));
     res.status(201).json({ success: true, data: session });
   } catch (error) {
     next(error);
@@ -69,11 +70,11 @@ r.post("/log", requireAuth, async (req, res, next) => {
     });
     const data = schema.parse(req.body);
 
-    const result = await FocusService.logSession(req.user!.id, {
+    const result = await FocusService.logSession(req.user!.id, removeUndefined({
       duration_mins: data.duration_mins,
       journey_day_id: data.journey_day_id,
       started_at: data.started_at ? new Date(data.started_at) : undefined,
-    });
+    }));
 
     res.status(201).json({ success: true, data: result });
   } catch (error) {

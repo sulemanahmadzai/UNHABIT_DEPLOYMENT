@@ -82,5 +82,57 @@ r.get("/earned", requireAuth, async (req, res, next) => {
         next(error);
     }
 });
+/**
+ * GET /api/rewards/xp/today
+ * Get today's XP earned
+ */
+r.get("/xp/today", requireAuth, async (req, res, next) => {
+    try {
+        const xp = await RewardsService.getTodayXP(req.user.id);
+        res.json({ success: true, data: xp });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/rewards/level
+ * Get user level and progress
+ */
+r.get("/level", requireAuth, async (req, res, next) => {
+    try {
+        const level = await RewardsService.getLevelInfo(req.user.id);
+        res.json({ success: true, data: level });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/rewards/badges/gallery
+ * Get badge gallery with progress
+ */
+r.get("/badges/gallery", requireAuth, async (req, res, next) => {
+    try {
+        const gallery = await RewardsService.getBadgeGallery(req.user.id);
+        res.json({ success: true, data: gallery });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/rewards/badges/next
+ * Get next badge to earn
+ */
+r.get("/badges/next", requireAuth, async (req, res, next) => {
+    try {
+        const nextBadge = await RewardsService.getNextBadge(req.user.id);
+        res.json({ success: true, data: nextBadge });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 export default r;
 //# sourceMappingURL=rewards.js.map

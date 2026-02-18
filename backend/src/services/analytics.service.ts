@@ -358,7 +358,7 @@ export async function getHabitHealthTrend(userId: string, days: number = 7) {
   const trend: Array<{ date: string; health: number }> = [];
 
   // Calculate health for each day in the range
-  for (let d = new Date(Math.max(startDate, daysAgo)); d <= today; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(Math.max(startDate.getTime(), daysAgo.getTime())); d <= today; d.setDate(d.getDate() + 1)) {
     const dayNumber = Math.floor((d.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     const dayData = activeJourney.journey_days.find(jd => jd.day_number === dayNumber);
 
@@ -374,16 +374,19 @@ export async function getHabitHealthTrend(userId: string, days: number = 7) {
       }
 
       const health = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-      trend.push({
-        date: d.toISOString().split('T')[0],
-        health,
-      });
+      const dateStr = d.toISOString().split('T')[0];
+      if (dateStr) {
+        trend.push({
+          date: dateStr,
+          health,
+        });
+      }
     }
   }
 
-  const currentHealth = trend.length > 0 ? trend[trend.length - 1].health : 0;
-  const previousHealth = trend.length > 1 ? trend[0].health : currentHealth;
-  const changePercent = previousHealth > 0 
+  const currentHealth = trend.length > 0 && trend[trend.length - 1] ? trend[trend.length - 1]!.health : 0;
+  const previousHealth = trend.length > 1 && trend[0] ? trend[0]!.health : currentHealth;
+  const changePercent = previousHealth > 0
     ? Math.round(((currentHealth - previousHealth) / previousHealth) * 100)
     : 0;
 

@@ -1,10 +1,17 @@
 import { prisma } from "../lib/services.js";
 import { Decimal } from "@prisma/client/runtime/library";
+import { cacheDashboard, getCachedDashboard } from "./cache.service.js";
 
 /**
  * Get aggregated home dashboard data for a user
  */
 export async function getDashboard(userId: string) {
+  // Try cache first
+  const cached = await getCachedDashboard(userId);
+  if (cached) {
+    return cached;
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split("T")[0];
@@ -85,7 +92,7 @@ export async function getDashboard(userId: string) {
   const totalXP = Number(pointBalance?.total_points ?? 0);
   const level = calculateLevel(totalXP);
 
-  return {
+  const dashboardData = {
     user: {
       name: profile?.full_name ?? "User",
       avatar_url: profile?.avatar_url,
@@ -121,6 +128,11 @@ export async function getDashboard(userId: string) {
       next_badge: nextBadge,
     },
   };
+
+  // Cache for 2 minutes
+  await cacheDashboard(userId, dashboardData, 120);
+
+  return dashboardData;
 }
 
 /**
