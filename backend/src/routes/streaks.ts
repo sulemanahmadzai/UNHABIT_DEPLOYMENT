@@ -88,4 +88,23 @@ r.get("/freeze/available", requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/streaks/reset
+ * Reset streak to 0 (Continue with penalty option)
+ * Used when user missed a day and chooses to accept the penalty & restart streak count
+ */
+r.post("/reset", requireAuth, async (req, res, next) => {
+  try {
+    const result = await StreaksService.resetStreak(req.user!.id);
+    res.json({
+      success: true,
+      message: result.message,
+      data: { current_streak: result.current_streak },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default r;
+

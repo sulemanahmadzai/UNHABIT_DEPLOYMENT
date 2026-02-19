@@ -342,6 +342,37 @@ function getHealthMessage(score) {
     return "Your habit needs attention. Let's get back on track!";
 }
 /**
+ * Reset streak (Continue with penalty)
+ * Sets current_length to 0 so user can start fresh from tomorrow
+ */
+export async function resetStreak(userId) {
+    const streak = await prisma.streaks.findFirst({
+        where: { user_id: userId, kind: "task_completion" },
+    });
+    if (!streak) {
+        // No streak record yet — nothing to reset
+        return { success: true, current_streak: 0, message: "No active streak to reset" };
+    }
+    await prisma.streaks.update({
+        where: {
+            user_id_kind: {
+                user_id: userId,
+                kind: "task_completion",
+            },
+        },
+        data: {
+            current_length: 0,
+            last_event_date: null,
+            is_frozen: false,
+        },
+    });
+    return {
+        success: true,
+        current_streak: 0,
+        message: "Streak reset successfully. Start fresh from today!",
+    };
+}
+/**
  * Calculate available freezes based on XP and consistency
  * Formula: base_freezes + floor(total_xp / 1000) + streak_bonus
  */

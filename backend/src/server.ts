@@ -11,9 +11,9 @@ function validateSupabaseConfig() {
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY'
   ];
-  
+
   const missing = requiredVars.filter(v => !process.env[v]);
-  
+
   if (missing.length > 0) {
     console.error('\n❌ Missing required environment variables:');
     missing.forEach(v => console.error(`   - ${v}`));
@@ -21,7 +21,7 @@ function validateSupabaseConfig() {
     console.error('   See env.example for required variables.\n');
     process.exit(1);
   }
-  
+
   // Validate URL format
   const supabaseUrl = process.env.SUPABASE_URL!;
   if (!supabaseUrl.startsWith('https://') || !supabaseUrl.includes('.supabase.co')) {
@@ -30,7 +30,7 @@ function validateSupabaseConfig() {
     console.error('   Expected format: https://[project-ref].supabase.co\n');
     process.exit(1);
   }
-  
+
   console.log('✅ Supabase configuration validated');
   console.log(`   URL: ${supabaseUrl}`);
 }
@@ -41,7 +41,7 @@ async function testSupabaseConnection() {
     const { supabaseAdmin } = await import('./lib/services.js');
     // Try a simple health check - list users (will fail if not connected)
     const { error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1 });
-    
+
     if (error) {
       // If it's a network error, show helpful message
       if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND')) {
@@ -83,19 +83,25 @@ testSupabaseConnection().catch(() => {
 
 const server = app.listen(PORT, () => {
   console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
+
+  // Start cron jobs for push notification triggers
+  import("./services/cron.service.js")
+    .then(({ startCronJobs }) => startCronJobs())
+    .catch((err) => console.error("Failed to start cron jobs:", err));
 });
+
 
 // Graceful shutdown handler
 async function gracefulShutdown(signal: string) {
   console.log(`\n${signal} received, shutting down gracefully...`);
-  
+
   // Close HTTP server
   server.close(async () => {
     console.log("✅ HTTP server closed");
-    
+
     // Disconnect Redis
     await redis.disconnect();
-    
+
     console.log("👋 Shutdown complete");
     process.exit(0);
   });

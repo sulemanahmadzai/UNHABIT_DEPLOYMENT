@@ -93,6 +93,15 @@ export declare function getHabitHealth(userId: string): Promise<{
     message: string;
 }>;
 /**
+ * Reset streak (Continue with penalty)
+ * Sets current_length to 0 so user can start fresh from tomorrow
+ */
+export declare function resetStreak(userId: string): Promise<{
+    success: boolean;
+    current_streak: number;
+    message: string;
+}>;
+/**
  * Calculate available freezes based on XP and consistency
  * Formula: base_freezes + floor(total_xp / 1000) + streak_bonus
  */

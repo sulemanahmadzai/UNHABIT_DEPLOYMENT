@@ -76,6 +76,10 @@ testSupabaseConnection().catch(() => {
 });
 const server = app.listen(PORT, () => {
     console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
+    // Start cron jobs for push notification triggers
+    import("./services/cron.service.js")
+        .then(({ startCronJobs }) => startCronJobs())
+        .catch((err) => console.error("Failed to start cron jobs:", err));
 });
 // Graceful shutdown handler
 async function gracefulShutdown(signal) {

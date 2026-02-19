@@ -5,6 +5,8 @@ import * as NotificationsService from "../services/notifications.service.js";
 import * as NotificationsFeedService from "../services/notifications-feed.service.js";
 import { isValidUUID } from "../utils/validation.js";
 import { removeUndefined } from "../utils/object.js";
+import { sendPushNotifications } from "../services/push-notifications.service.js";
+import * as SettingsService from "../services/settings.service.js";
 const r = Router();
 /**
  * GET /api/notifications/preferences
@@ -270,6 +272,37 @@ r.delete("/:id", requireAuth, async (req, res, next) => {
             return res.status(404).json({ success: false, error: "Notification not found" });
         }
         res.json({ success: true, message: "Notification deleted" });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * POST /api/notifications/test-push
+ * Developer reference: test sending a push notification to your own devices
+ */
+r.post("/test-push", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            title: z.string().min(1).max(100).optional(),
+            body: z.string().min(1).max(200).optional(),
+        });
+        const { title = "Test Notification", body = "This is a test push notification!" } = schema.parse(req.body);
+        const devices = await SettingsService.getDevices(req.user.id);
+        const tokens = devices.map((d) => d.push_token);
+        const result = await sendPushNotifications(tokens, title, body, {
+            type: "test",
+        });
+        res.json({
+            success: true,
+            message: "Push notification sent",
+            data: {
+                devices_found: devices.length,
+                tokens_found: tokens.filter(Boolean).length,
+                sent: result.sent,
+                failed: result.failed,
+            },
+        });
     }
     catch (error) {
         next(error);

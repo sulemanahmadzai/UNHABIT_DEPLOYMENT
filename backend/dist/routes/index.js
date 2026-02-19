@@ -22,6 +22,7 @@ import focus from "./focus.js";
 import recovery from "./recovery.js";
 import share from "./share.js";
 import challenges from "./challenges.js";
+import support from "./support.js";
 const r = Router();
 r.use("/auth", auth);
 r.use("/health", health);
@@ -46,5 +47,6 @@ r.use("/focus", focus);
 r.use("/recovery", recovery);
 r.use("/share", share);
 r.use("/challenges", challenges);
+r.use("/support", support);
 export default r;
 //# sourceMappingURL=index.js.map
