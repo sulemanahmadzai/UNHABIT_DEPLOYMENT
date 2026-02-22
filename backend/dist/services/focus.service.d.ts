@@ -50,6 +50,30 @@ export declare function stopSession(userId: string, sessionId: string): Promise<
     already_completed: boolean;
 } | null>;
 /**
+ * Cancel an active focus session (no XP awarded, session row is deleted)
+ */
+export declare function cancelSession(userId: string, sessionId: string): Promise<{
+    session: {
+        user_id: string;
+        created_at: Date;
+        id: string;
+        started_at: Date;
+        completed: boolean;
+        journey_day_id: string | null;
+        duration_mins: number;
+        ended_at: Date | null;
+        xp_awarded: number;
+    };
+    already_completed: boolean;
+    cancelled?: never;
+    session_id?: never;
+} | {
+    cancelled: boolean;
+    session_id: string;
+    session?: never;
+    already_completed?: never;
+} | null>;
+/**
  * Log a completed focus session (for offline/manual logging)
  */
 export declare function logSession(userId: string, data: {

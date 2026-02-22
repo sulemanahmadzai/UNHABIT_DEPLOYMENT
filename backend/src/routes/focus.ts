@@ -124,4 +124,26 @@ r.get("/active", requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/focus/cancel
+ * Cancel an active focus session (no XP awarded, session is deleted)
+ */
+r.post("/cancel", requireAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      session_id: z.string().uuid(),
+    });
+    const { session_id } = schema.parse(req.body);
+
+    const result = await FocusService.cancelSession(req.user!.id, session_id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: "Session not found" });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default r;

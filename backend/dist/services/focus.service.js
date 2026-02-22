@@ -70,6 +70,28 @@ export async function stopSession(userId, sessionId) {
     };
 }
 /**
+ * Cancel an active focus session (no XP awarded, session row is deleted)
+ */
+export async function cancelSession(userId, sessionId) {
+    const session = await prisma.focus_sessions.findFirst({
+        where: {
+            id: sessionId,
+            user_id: userId,
+        },
+    });
+    if (!session) {
+        return null;
+    }
+    if (session.completed) {
+        return { session, already_completed: true };
+    }
+    // Delete the session row — no XP, no completion log
+    await prisma.focus_sessions.delete({
+        where: { id: sessionId },
+    });
+    return { cancelled: true, session_id: sessionId };
+}
+/**
  * Log a completed focus session (for offline/manual logging)
  */
 export async function logSession(userId, data) {
@@ -114,7 +136,7 @@ export async function logSession(userId, data) {
  */
 export async function getHistory(userId, limit = 30, offset = 0) {
     const sessions = await prisma.focus_sessions.findMany({
-        where: { user_id: userId },
+        where: { user_id: userId, completed: true },
         orderBy: { started_at: "desc" },
         take: limit,
         skip: offset,
