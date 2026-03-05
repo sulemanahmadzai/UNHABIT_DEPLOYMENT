@@ -17,8 +17,8 @@ COPY src ./src
 # Copy OpenAPI spec (used by Swagger UI at runtime)
 COPY openapi.json ./openapi.json
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client (using dummy URL - actual URL provided at runtime)
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Compile TypeScript → dist/
 RUN npm run build
