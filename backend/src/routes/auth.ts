@@ -205,6 +205,8 @@ r.get("/me", requireAuth, async (req, res, next) => {
         email: user.email,
         created_at: user.created_at,
         last_sign_in_at: user.last_sign_in_at,
+        user_metadata: user.user_metadata,
+        app_metadata: user.app_metadata,
       },
       profile,
     });
