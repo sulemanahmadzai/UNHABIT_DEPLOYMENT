@@ -1,6 +1,7 @@
 import { prisma } from "../lib/services.js";
 import { getSettingValue } from "./admin.service.js";
 import * as RewardsService from "./rewards.service.js";
+import * as BadgeAwardingService from "./badge-awarding.service.js";
 
 /**
  * Start a focus session
@@ -78,6 +79,9 @@ export async function stopSession(userId: string, sessionId: string) {
   if (xpEarned > 0) {
     await RewardsService.awardPoints(userId, xpEarned);
   }
+
+  // Check for focus-related badges
+  await BadgeAwardingService.checkAndAwardBadgeType(userId, 'focus_sessions');
 
   return {
     session: updatedSession,
@@ -161,6 +165,9 @@ export async function logSession(
   if (xpEarned > 0) {
     await RewardsService.awardPoints(userId, xpEarned);
   }
+
+  // Check for focus-related badges
+  await BadgeAwardingService.checkAndAwardBadgeType(userId, 'focus_sessions');
 
   return {
     session,

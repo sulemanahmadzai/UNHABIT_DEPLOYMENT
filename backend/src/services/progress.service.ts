@@ -1,5 +1,6 @@
 import { db } from "../lib/services.js";
 import { Prisma } from "@prisma/client";
+import * as BadgeAwardingService from "./badge-awarding.service.js";
 
 interface ReflectionData {
   journey_day_id: string;
@@ -208,7 +209,7 @@ export async function submitReflection(userId: string, data: ReflectionData) {
   }
 
   // Upsert reflection
-  return db.reflections.upsert({
+  const reflection = await db.reflections.upsert({
     where: {
       user_id_journey_day_id: {
         user_id: userId,
@@ -226,6 +227,11 @@ export async function submitReflection(userId: string, data: ReflectionData) {
       answers: data.answers || {},
     },
   });
+
+  // Check for reflection badges
+  await BadgeAwardingService.checkAndAwardBadgeType(userId, 'reflections_submitted');
+
+  return reflection;
 }
 
 /**

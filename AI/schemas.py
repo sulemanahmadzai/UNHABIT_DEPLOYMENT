@@ -188,20 +188,38 @@ class QuizSummary(BaseModel):
 
 # -------------------- 21-Day Plan -------------------- #
 
+class DayTask(BaseModel):
+    """
+    A single task for a day.
+    """
+    title: str = Field(
+        ...,
+        description="Short task title (≤ 12 words)"
+    )
+    description: str = Field(
+        ...,
+        description="Detailed task description (≤ 25 words)"
+    )
+    kind: str = Field(
+        default="behavioral",
+        description="Task type: behavioral, cognitive, environmental, identity, or reflection"
+    )
+
+
 class Plan21D(BaseModel):
     """
     21-day habit reduction plan.
 
-    - day_tasks: the concrete, do-this-today instruction (short, behavioural).
-    - day_whys: optional short explanations for *why* this task works
+    - day_tasks: 3-4 concrete tasks per day (short, behavioral).
+    - day_whys: optional short explanations for *why* this day's tasks work
       (used for a 'Why this?' toggle in the UI).
     """
     plan_summary: str
 
-    # e.g. {"day_1": "Do X", "day_2": "Do Y", ...}
-    day_tasks: Dict[str, str]
+    # e.g. {"day_1": [DayTask(...), DayTask(...), ...], "day_2": [...], ...}
+    day_tasks: Dict[str, List[DayTask]]
 
-    # e.g. {"day_1": "This weakens the cue→reward link in your evening loop.", ...}
+    # e.g. {"day_1": "These tasks weaken the cue→reward link in your evening loop.", ...}
     day_whys: Optional[Dict[str, str]] = None
 
 

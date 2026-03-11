@@ -161,10 +161,16 @@ interface Plan21DRequest {
   user_context?: string | undefined;
 }
 
-// AI returns Plan21D: { plan_summary, day_tasks: {day_1: "...", ...}, day_whys?: {...} }
+// AI returns Plan21D: { plan_summary, day_tasks: {day_1: [...], ...}, day_whys?: {...} }
+interface DayTask {
+  title: string;
+  description: string;
+  kind: string; // "behavioral" | "cognitive" | "environmental" | "identity" | "reflection"
+}
+
 interface Plan21DResponse {
   plan_summary: string;
-  day_tasks: Record<string, string>; // {"day_1": "task", "day_2": "task", ...}
+  day_tasks: Record<string, DayTask[]>; // {"day_1": [task1, task2, task3], "day_2": [...], ...}
   day_whys?: Record<string, string> | null; // {"day_1": "why", ...}
 }
 
@@ -594,6 +600,7 @@ export async function healthCheck(): Promise<AIServiceResponse<{ status: string 
 
 // Export types for use in routes
 export type {
+  DayTask,
   OnboardingStartRequest,
   OnboardingStartResponse,
   CanonicalizeHabitRequest,

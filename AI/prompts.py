@@ -809,16 +809,24 @@ DAILY TASK RULES (HARD)
 ========================
 
 Each day MUST:
-- Contain exactly ONE task
-- Be ≤ 18 words
-- Be executable TODAY
-- Be behaviorally observable
-- Include at least ONE of:
+- Contain 3-4 tasks (EXACTLY 3 or 4, never less, never more)
+- Each task must have:
+  - title: ≤ 12 words, action-oriented
+  - description: ≤ 25 words, executable TODAY
+  - kind: one of: "behavioral", "cognitive", "environmental", "identity", "reflection"
+- Tasks must be behaviorally observable
+- At least ONE task per day must include:
   - a mechanism attack,
   - a discomfort insertion,
   - a rule violation risk,
   - a self-image contradiction,
   - a dopamine reassignment via execution.
+
+Task distribution across the day:
+- At least 1 task should target morning/start of day
+- At least 1 task should target high-risk moments
+- At least 1 task should target evening/end of day
+- Tasks should work together as a system, not be random
 
 ========================
 ANTI-GENERIC ENFORCEMENT
@@ -834,7 +842,7 @@ BANNED as core strategy:
 - repeat no-X-before-Y rules
 - endless micro-bursts without escalation
 
-These may appear only as MINOR support.
+These may appear only as MINOR support within a larger task.
 
 ========================
 TONE
@@ -857,27 +865,46 @@ Return ONLY valid JSON:
 {{
   "plan_summary": "",
   "day_tasks": {{
-    "day_1": "",
-    "day_2": "",
-    "day_3": "",
-    "day_4": "",
-    "day_5": "",
-    "day_6": "",
-    "day_7": "",
-    "day_8": "",
-    "day_9": "",
-    "day_10": "",
-    "day_11": "",
-    "day_12": "",
-    "day_13": "",
-    "day_14": "",
-    "day_15": "",
-    "day_16": "",
-    "day_17": "",
-    "day_18": "",
-    "day_19": "",
-    "day_20": "",
-    "day_21": ""
+    "day_1": [
+      {{
+        "title": "",
+        "description": "",
+        "kind": "behavioral"
+      }},
+      {{
+        "title": "",
+        "description": "",
+        "kind": "environmental"
+      }},
+      {{
+        "title": "",
+        "description": "",
+        "kind": "cognitive"
+      }}
+    ],
+    "day_2": [
+      {{
+        "title": "",
+        "description": "",
+        "kind": "behavioral"
+      }},
+      {{
+        "title": "",
+        "description": "",
+        "kind": "identity"
+      }},
+      {{
+        "title": "",
+        "description": "",
+        "kind": "environmental"
+      }},
+      {{
+        "title": "",
+        "description": "",
+        "kind": "cognitive"
+      }}
+    ],
+    ... (continue for all 21 days)
   }}
 }}
 """.strip()

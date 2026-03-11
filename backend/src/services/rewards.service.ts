@@ -1,5 +1,6 @@
 import { db } from "../lib/services.js";
 import { Prisma } from "@prisma/client";
+import * as BadgeAwardingService from "./badge-awarding.service.js";
 
 /**
  * Get point balance for a user
@@ -135,7 +136,7 @@ export async function awardPoints(
   });
 
   // Update balance
-  return db.point_balances.upsert({
+  const balance = await db.point_balances.upsert({
     where: { user_id: userId },
     create: {
       user_id: userId,
@@ -150,6 +151,13 @@ export async function awardPoints(
       updated_at: new Date(),
     },
   });
+
+  // Check for XP badges (don't await to avoid slowing down the response)
+  BadgeAwardingService.checkAndAwardBadgeType(userId, 'xp_earned').catch(err => {
+    console.error('Error checking XP badges:', err);
+  });
+
+  return balance;
 }
 
 /**

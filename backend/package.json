@@ -15,7 +15,10 @@
     "test": "tsx tests/run-all-tests.ts",
     "test:watch": "tsx watch tests/run-all-tests.ts",
     "test:admin": "tsx tests/test-admin.ts",
-    "test:buddies": "tsx tests/test-buddies.ts"
+    "test:buddies": "tsx tests/test-buddies.ts",
+    "test:redis": "tsx test-redis.ts",
+    "test:ai-cache": "tsx test-ai-caching.ts",
+    "test:ai-plan": "tsx test-ai-plan-structure.ts"
   },
   "keywords": [],
   "author": "",
