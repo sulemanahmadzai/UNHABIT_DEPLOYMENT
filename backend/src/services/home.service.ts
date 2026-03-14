@@ -175,14 +175,18 @@ async function getTodaysTasks(userId: string, journeyId: string, dayNumber: numb
 
   if (!journeyDay) return [];
 
-  return journeyDay.journey_tasks.map(task => ({
-    id: task.id,
-    title: task.title,
-    kind: task.kind,
-    effort: task.effort,
-    completed: task.user_task_progress.some(p => p.status === "completed"),
-    xp: 10, // Default XP per task
-  }));
+  return journeyDay.journey_tasks.map(task => {
+    const meta = task.meta as Record<string, unknown> | null;
+    return {
+      id: task.id,
+      title: task.title,
+      kind: task.kind,
+      effort: task.effort,
+      description: (meta as any)?.description ?? null,
+      completed: task.user_task_progress.some(p => p.status === "completed"),
+      xp: 10,
+    };
+  });
 }
 
 /**

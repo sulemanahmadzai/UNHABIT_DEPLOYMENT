@@ -7,20 +7,21 @@ const r = Router();
 
 /**
  * Transform AI plan's day_tasks format to journey's days array format
- * AI returns: { day_tasks: { day_1: "task", day_2: "task" }, day_whys?: {...} }
- * Journey expects: { days: [{ day_number: 1, tasks: [{ title: "task" }] }] }
+ * AI returns: { day_tasks: { day_1: [{title, description, kind}, ...], ... }, day_whys?: {...} }
+ * Journey expects: { days: [{ day_number: 1, tasks: [{title, kind, effort, meta}] }] }
  */
+type AITaskEntry = string | Array<{ title: string; description?: string | undefined; kind?: string | undefined }>;
+
 function transformAIPlanToJourneyDays(aiPlan: {
-  day_tasks: Record<string, string>;
+  day_tasks: Record<string, AITaskEntry>;
   day_whys?: Record<string, string> | undefined;
   plan_summary?: string | undefined;
 }): { days: Array<{ day_number: number; theme: string | null; tasks: Array<{ title: string; kind: string | null; effort: number | null; meta: Record<string, unknown> | null }>; prompts: string[] | null }> } {
   const dayTasks = aiPlan.day_tasks || {};
   const dayWhys = aiPlan.day_whys || {};
-  
+
   const dayNumbers = Object.keys(dayTasks)
     .map(key => {
-      // Extract day number from "day_1", "day_2", etc.
       const match = key.match(/day_(\d+)/);
       return match && match[1] ? parseInt(match[1], 10) : null;
     })
@@ -28,24 +29,41 @@ function transformAIPlanToJourneyDays(aiPlan: {
     .sort((a, b) => a - b);
 
   const days = dayNumbers.map(dayNum => {
-    const taskText = dayTasks[`day_${dayNum}`] || "";
+    const rawTasks = dayTasks[`day_${dayNum}`];
     const whyText = dayWhys[`day_${dayNum}`] || null;
-    
-    // Determine theme based on day progression
+
     let theme: string | null = null;
     if (dayNum <= 7) theme = "Awareness & Observation";
     else if (dayNum <= 14) theme = "Pattern Breaking";
     else theme = "Identity Building";
 
+    const effort = dayNum <= 7 ? 2 : dayNum <= 14 ? 3 : 4;
+
+    let tasks: Array<{ title: string; kind: string | null; effort: number | null; meta: Record<string, unknown> | null }>;
+
+    if (Array.isArray(rawTasks)) {
+      tasks = rawTasks.map(t => ({
+        title: t.title,
+        kind: t.kind || "daily_action",
+        effort,
+        meta: {
+          ...(t.description ? { description: t.description } : {}),
+          ...(whyText ? { why: whyText } : {}),
+        },
+      }));
+    } else {
+      tasks = [{
+        title: typeof rawTasks === "string" ? rawTasks : "",
+        kind: "daily_action",
+        effort,
+        meta: whyText ? { why: whyText } : null,
+      }];
+    }
+
     return {
       day_number: dayNum,
       theme,
-      tasks: [{
-        title: taskText,
-        kind: "daily_action" as const,
-        effort: dayNum <= 7 ? 2 : dayNum <= 14 ? 3 : 4,
-        meta: whyText ? { why: whyText } : null,
-      }],
+      tasks,
       prompts: whyText ? [whyText] : null,
     };
   });
@@ -105,13 +123,16 @@ r.post("/", requireAuth, async (req, res, next) => {
     let startDate: Date | undefined;
 
     if (isAIFormat) {
-      // AI format schema
+      const aiTaskEntry = z.union([
+        z.string(),
+        z.array(z.object({ title: z.string(), description: z.string().optional(), kind: z.string().optional() })),
+      ]);
       const aiSchema = z.object({
         user_habit_id: z.string().uuid(),
         blueprint_id: z.string().uuid().optional(),
         plan_data: z.object({
           plan_summary: z.string().optional(),
-          day_tasks: z.record(z.string(), z.string()),
+          day_tasks: z.record(z.string(), aiTaskEntry),
           day_whys: z.record(z.string(), z.string()).optional(),
         }),
         start_date: z.string().datetime().optional(),
@@ -193,12 +214,16 @@ r.post("/", requireAuth, async (req, res, next) => {
  */
 r.post("/from-ai-plan", requireAuth, async (req, res, next) => {
   try {
+    const aiTaskEntry = z.union([
+      z.string(),
+      z.array(z.object({ title: z.string(), description: z.string().optional(), kind: z.string().optional() })),
+    ]);
     const schema = z.object({
       user_habit_id: z.string().uuid(),
       blueprint_id: z.string().uuid().optional(),
       ai_plan: z.object({
         plan_summary: z.string().optional(),
-        day_tasks: z.record(z.string(), z.string()),
+        day_tasks: z.record(z.string(), aiTaskEntry),
         day_whys: z.record(z.string(), z.string()).optional(),
       }),
       start_date: z.string().datetime().optional(),

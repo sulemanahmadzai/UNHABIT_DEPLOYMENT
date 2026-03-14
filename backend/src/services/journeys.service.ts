@@ -381,15 +381,19 @@ export async function getTodayJourneyDay(userId: string, journeyId: string) {
   }
 
   // Format tasks with completion status
-  const tasks = journeyDay.journey_tasks.map(task => ({
-    id: task.id,
-    title: task.title,
-    kind: task.kind,
-    effort: task.effort,
-    meta: task.meta,
-    completed: task.user_task_progress.some(p => p.status === "completed"),
-    completed_at: task.user_task_progress.find(p => p.status === "completed")?.completed_at,
-  }));
+  const tasks = journeyDay.journey_tasks.map(task => {
+    const meta = task.meta as Record<string, unknown> | null;
+    return {
+      id: task.id,
+      title: task.title,
+      kind: task.kind,
+      effort: task.effort,
+      description: (meta as any)?.description ?? null,
+      meta,
+      completed: task.user_task_progress.some(p => p.status === "completed"),
+      completed_at: task.user_task_progress.find(p => p.status === "completed")?.completed_at,
+    };
+  });
 
   const completedCount = tasks.filter(t => t.completed).length;
 

@@ -886,12 +886,16 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
     data = _llm_json(prompt, max_tokens=1600, temperature=0.35)
 
     try:
-        # Basic sanitization
+        # Basic sanitization — day_tasks values should be lists of task dicts
         day_tasks = data.get("day_tasks", {}) or {}
-        for i in range(1, 21):
+        fallback = _fallback_plan21(state.quiz_summary)
+        for i in range(1, 22):
             key = f"day_{i}"
-            if key not in day_tasks or not isinstance(day_tasks[key], str) or not day_tasks[key].strip():
-                day_tasks[key] = _fallback_plan21(state.quiz_summary).day_tasks[key]
+            if key not in day_tasks or not isinstance(day_tasks[key], list) or len(day_tasks[key]) < 2:
+                day_tasks[key] = fallback.day_tasks[key]
+            else:
+                valid = [t for t in day_tasks[key] if isinstance(t, dict) and t.get("title")]
+                day_tasks[key] = valid if len(valid) >= 2 else fallback.day_tasks[key]
 
         data["day_tasks"] = day_tasks
 
