@@ -151,7 +151,7 @@ async function getUserStats(userId: string) {
     countPerfectDays(userId),
     prisma.point_balances.findUnique({ where: { user_id: userId } }),
     prisma.buddy_checkins.count({
-      where: { user_id: userId },
+      where: { by_user: userId },
     }),
     prisma.journeys.count({
       where: { user_id: userId, status: "active" },
@@ -285,8 +285,9 @@ async function countWeekendCompletions(userId: string): Promise<number> {
   for (const day of journeyDays) {
     if (day.journey_tasks.length === 0) continue;
 
-    // Check if it's a weekend (Saturday = 6, Sunday = 0)
-    const dayOfWeek = new Date(day.date).getDay();
+    // journey_days has no date field; use day_number mod 7 as a proxy
+    // day_number 1-based: treat day 1 = Mon, so day 7 = Sun, day 6 = Sat
+    const dayOfWeek = day.day_number % 7;
     if (dayOfWeek !== 0 && dayOfWeek !== 6) continue;
 
     const allCompleted = day.journey_tasks.every(task =>

@@ -1,5 +1,6 @@
 import { db } from "../lib/services.js";
 import { Prisma } from "@prisma/client";
+import * as BadgeAwardingService from "./badge-awarding.service.js";
 /**
  * Mark a task as completed
  */
@@ -173,7 +174,7 @@ export async function submitReflection(userId, data) {
         throw new Error("Journey day not found");
     }
     // Upsert reflection
-    return db.reflections.upsert({
+    const reflection = await db.reflections.upsert({
         where: {
             user_id_journey_day_id: {
                 user_id: userId,
@@ -191,6 +192,9 @@ export async function submitReflection(userId, data) {
             answers: data.answers || {},
         },
     });
+    // Check for reflection badges
+    await BadgeAwardingService.checkAndAwardBadgeType(userId, 'reflections_submitted');
+    return reflection;
 }
 /**
  * Get reflection for a day

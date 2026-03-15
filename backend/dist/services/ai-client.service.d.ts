@@ -121,9 +121,14 @@ interface Plan21DRequest {
     quiz_summary: string;
     user_context?: string | undefined;
 }
+interface DayTask {
+    title: string;
+    description: string;
+    kind: string;
+}
 interface Plan21DResponse {
     plan_summary: string;
-    day_tasks: Record<string, string>;
+    day_tasks: Record<string, DayTask[]>;
     day_whys?: Record<string, string> | null;
 }
 interface CoachRequest {
@@ -225,5 +230,5 @@ export declare function explainDay(request: WhyDayRequest): Promise<AIServiceRes
 export declare function healthCheck(): Promise<AIServiceResponse<{
     status: string;
 }>>;
-export type { OnboardingStartRequest, OnboardingStartResponse, CanonicalizeHabitRequest, CanonicalizeHabitResponse, SafetyRequest, SafetyResponse, QuizFormRequest, QuizFormResponse, QuizSummaryRequest, QuizSummaryResponse, Plan21DRequest, Plan21DResponse, CoachRequest, CoachResponse, WhyDayRequest, WhyDayResponse, AIServiceResponse, };
+export type { DayTask, OnboardingStartRequest, OnboardingStartResponse, CanonicalizeHabitRequest, CanonicalizeHabitResponse, SafetyRequest, SafetyResponse, QuizFormRequest, QuizFormResponse, QuizSummaryRequest, QuizSummaryResponse, Plan21DRequest, Plan21DResponse, CoachRequest, CoachResponse, WhyDayRequest, WhyDayResponse, AIServiceResponse, };
 //# sourceMappingURL=ai-client.service.d.ts.map

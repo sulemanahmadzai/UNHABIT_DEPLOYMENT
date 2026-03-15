@@ -319,7 +319,8 @@ export declare function getTodayJourneyDay(userId: string, journeyId: string): P
         title: string;
         kind: string | null;
         effort: number | null;
-        meta: Prisma.JsonValue;
+        description: any;
+        meta: Record<string, unknown> | null;
         completed: boolean;
         completed_at: Date | null | undefined;
     }[];

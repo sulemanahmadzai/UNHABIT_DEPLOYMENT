@@ -147,14 +147,18 @@ async function getTodaysTasks(userId, journeyId, dayNumber) {
     });
     if (!journeyDay)
         return [];
-    return journeyDay.journey_tasks.map(task => ({
-        id: task.id,
-        title: task.title,
-        kind: task.kind,
-        effort: task.effort,
-        completed: task.user_task_progress.some(p => p.status === "completed"),
-        xp: 10, // Default XP per task
-    }));
+    return journeyDay.journey_tasks.map(task => {
+        const meta = task.meta;
+        return {
+            id: task.id,
+            title: task.title,
+            kind: task.kind,
+            effort: task.effort,
+            description: meta?.description ?? null,
+            completed: task.user_task_progress.some(p => p.status === "completed"),
+            xp: 10,
+        };
+    });
 }
 /**
  * Get today's XP

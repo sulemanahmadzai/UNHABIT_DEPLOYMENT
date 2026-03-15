@@ -25,9 +25,9 @@ export declare function getPointsHistory(userId: string, limit: number, offset: 
 } & {
     user_id: string;
     id: string;
-    amount: number;
     rule_id: string | null;
     source_event_id: string | null;
+    amount: number;
     awarded_at: Date;
 })[]>;
 /**

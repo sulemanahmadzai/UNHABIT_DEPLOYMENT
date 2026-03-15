@@ -1,6 +1,7 @@
 import { db } from "../lib/services.js";
 import { v4 as uuidv4 } from "uuid";
 import { addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
+import * as BadgeAwardingService from "./badge-awarding.service.js";
 /**
  * Get all buddies for a user
  */
@@ -190,6 +191,11 @@ export async function acceptInvite(userId, inviteCode) {
             data: { status: "accepted" },
         }),
     ]);
+    // Check for buddy-related badges for both users
+    await Promise.all([
+        BadgeAwardingService.checkAndAwardBadgeType(invite.inviter_id, 'buddies_connected'),
+        BadgeAwardingService.checkAndAwardBadgeType(userId, 'buddies_connected'),
+    ]);
     return buddyLink;
 }
 /**
@@ -209,7 +215,7 @@ export async function submitCheckin(userId, data) {
     }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return db.buddy_checkins.upsert({
+    const checkin = await db.buddy_checkins.upsert({
         where: {
             buddy_link_id_by_user_checkin_date: {
                 buddy_link_id: data.buddy_link_id,
@@ -227,6 +233,9 @@ export async function submitCheckin(userId, data) {
             note: data.note ?? null,
         },
     });
+    // Check for buddy check-in badges
+    await BadgeAwardingService.checkAndAwardBadgeType(userId, 'buddy_checkins');
+    return checkin;
 }
 /**
  * Get check-ins
