@@ -1,94 +1,86 @@
+import { Expo } from 'expo-server-sdk';
+const expo = new Expo();
 /**
- * Push Notifications Service
- * Sends push notifications via Expo Push Notification Service.
- *
- * NOTE: Install the SDK before using in production:
- *   npm install expo-server-sdk
+ * Send push notifications to a list of tokens.
+ * @param tokens Array of Expo Push Tokens
+ * @param title Notification title
+ * @param body Notification body
+ * @param data Optional data payload
  */
-import { db } from "../lib/services.js";
-// Lazy-load Expo SDK so the server doesn't crash if it isn't installed yet
-let Expo = null;
-let expoClient = null;
-async function getExpoClient() {
-    if (expoClient)
-        return expoClient;
-    try {
-        const { Expo: ExpoClass } = await import("expo-server-sdk");
-        Expo = ExpoClass;
-        expoClient = new ExpoClass();
-        return expoClient;
+export async function sendPushNotifications(tokens, title, body, data = {}, categoryId) {
+    const messages = [];
+    const messageTokens = [];
+    for (const token of tokens) {
+        if (!Expo.isExpoPushToken(token)) {
+            console.error(`Push token ${token} is not a valid Expo push token`);
+            continue;
+        }
+        messageTokens.push(token);
+        messages.push({
+            to: token,
+            sound: 'default',
+            title,
+            body,
+            data,
+            ...(categoryId !== undefined && { categoryId }),
+        });
     }
-    catch {
-        console.warn("⚠️  expo-server-sdk is not installed. Push notifications are disabled.\n" +
-            "   Run: npm install expo-server-sdk");
-        return null;
-    }
-}
-/**
- * Send push notifications to a list of Expo push tokens.
- * Silently skips invalid tokens; logs errors but never throws.
- */
-export async function sendPushNotifications(tokens, title, body, data = { type: "general" }) {
-    const expo = await getExpoClient();
-    if (!expo) {
-        console.warn("Push notification skipped (expo-server-sdk not available)");
-        return { sent: 0, failed: 0 };
-    }
-    // Filter only valid Expo push tokens
-    const validTokens = tokens.filter((token) => typeof token === "string" && expo.isExpoPushToken(token));
-    if (validTokens.length === 0) {
-        return { sent: 0, failed: 0 };
-    }
-    const messages = validTokens.map((pushToken) => ({
-        to: pushToken,
-        sound: "default",
-        title,
-        body,
-        data,
-    }));
-    let sent = 0;
-    let failed = 0;
-    try {
-        const chunks = expo.chunkPushNotifications(messages);
-        for (const chunk of chunks) {
-            const receipts = await expo.sendPushNotificationsAsync(chunk);
-            for (const receipt of receipts) {
-                if (receipt.status === "ok") {
-                    sent++;
-                }
-                else {
-                    failed++;
-                    console.error("Push notification failed:", receipt.message, receipt.details);
-                }
-            }
+    const chunks = expo.chunkPushNotifications(messages);
+    const tickets = [];
+    for (const chunk of chunks) {
+        try {
+            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            console.log('Push tickets:', ticketChunk);
+            tickets.push(...ticketChunk);
+        }
+        catch (error) {
+            console.error('Error sending push notification chunk:', error);
         }
     }
-    catch (err) {
-        console.error("Error sending push notifications:", err);
-        failed += messages.length;
-    }
-    return { sent, failed };
+    // Expo returns tickets in the same order as the messages sent.
+    const tokenTicketPairs = tickets.map((ticket, i) => ({
+        token: messageTokens[i],
+        ticket,
+        receiptId: (ticket.status === 'ok' ? ticket.id : undefined),
+    }));
+    return {
+        tickets,
+        receiptIds: tokenTicketPairs.map(p => p.receiptId).filter((id) => !!id),
+        tokenTicketPairs,
+    };
 }
 /**
- * Retrieve all valid push tokens for a user from the devices table.
+ * Send push notification to a specific user by userId (looks up their devices).
  */
-export async function getUserPushTokens(userId) {
+export async function sendPushToUser(userId, title, body, data = {}) {
+    const { db } = await import("../lib/services.js");
     const devices = await db.devices.findMany({
-        where: {
-            user_id: userId,
-            push_token: { not: null },
-        },
-        select: { push_token: true },
+        where: { user_id: userId, push_token: { not: null } },
+        orderBy: { created_at: "desc" },
     });
-    return devices
-        .map((d) => d.push_token)
-        .filter((t) => typeof t === "string" && t.length > 0);
+    const tokens = Array.from(new Set(devices.map((d) => d.push_token).filter((t) => !!t)));
+    if (tokens.length === 0)
+        return null;
+    return sendPushNotifications(tokens, title, body, data);
 }
 /**
- * Convenience: send push to a user by user ID (fetches tokens internally)
+ * Process receipts (optional, for checking delivery errors like invalid tokens)
  */
-export async function sendPushToUser(userId, title, body, data = { type: "general" }) {
-    const tokens = await getUserPushTokens(userId);
-    return sendPushNotifications(tokens, title, body, data);
+export async function checkPushReceipts(receiptIds) {
+    const validIds = receiptIds.filter((id) => Expo.isExpoPushToken(id));
+    if (validIds.length === 0)
+        return {};
+    const chunks = expo.chunkPushNotificationReceiptIds(validIds);
+    const receipts = {};
+    for (const chunk of chunks) {
+        try {
+            const chunkReceipts = await expo.getPushNotificationReceiptsAsync(chunk);
+            Object.assign(receipts, chunkReceipts);
+        }
+        catch (error) {
+            console.error('Error checking push receipts:', error);
+        }
+    }
+    return receipts;
 }
 //# sourceMappingURL=push-notifications.service.js.map

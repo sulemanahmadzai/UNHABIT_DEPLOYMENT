@@ -289,18 +289,20 @@ r.post("/test-push", requireAuth, async (req, res, next) => {
         });
         const { title = "Test Notification", body = "This is a test push notification!" } = schema.parse(req.body);
         const devices = await SettingsService.getDevices(req.user.id);
-        const tokens = devices.map((d) => d.push_token);
+        const tokens = devices.map((d) => d.push_token).filter((t) => !!t);
         const result = await sendPushNotifications(tokens, title, body, {
             type: "test",
         });
+        const sent = result.tickets.filter((t) => t.status === "ok").length;
+        const failed = result.tickets.filter((t) => t.status === "error").length;
         res.json({
             success: true,
             message: "Push notification sent",
             data: {
                 devices_found: devices.length,
-                tokens_found: tokens.filter(Boolean).length,
-                sent: result.sent,
-                failed: result.failed,
+                tokens_found: tokens.length,
+                sent,
+                failed,
             },
         });
     }

@@ -1,7 +1,7 @@
 import { db } from "../lib/services.js";
 import { v4 as uuidv4 } from "uuid";
 import { addDays, subDays, startOfWeek, endOfWeek } from "date-fns";
-import * as BadgeAwardingService from "./badge-awarding.service.js";
+import { sendPushNotifications } from "./push-notifications.service.js";
 /**
  * Get all buddies for a user
  */
@@ -191,11 +191,6 @@ export async function acceptInvite(userId, inviteCode) {
             data: { status: "accepted" },
         }),
     ]);
-    // Check for buddy-related badges for both users
-    await Promise.all([
-        BadgeAwardingService.checkAndAwardBadgeType(invite.inviter_id, 'buddies_connected'),
-        BadgeAwardingService.checkAndAwardBadgeType(userId, 'buddies_connected'),
-    ]);
     return buddyLink;
 }
 /**
@@ -215,7 +210,7 @@ export async function submitCheckin(userId, data) {
     }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const checkin = await db.buddy_checkins.upsert({
+    return db.buddy_checkins.upsert({
         where: {
             buddy_link_id_by_user_checkin_date: {
                 buddy_link_id: data.buddy_link_id,
@@ -233,9 +228,6 @@ export async function submitCheckin(userId, data) {
             note: data.note ?? null,
         },
     });
-    // Check for buddy check-in badges
-    await BadgeAwardingService.checkAndAwardBadgeType(userId, 'buddy_checkins');
-    return checkin;
 }
 /**
  * Get check-ins
@@ -566,11 +558,11 @@ export async function getBuddyProfile(userId, buddyLinkId) {
             const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i];
             const diffDays = Math.floor((checkDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
             const dayData = activeJourney.journey_days.find(d => d.day_number === diffDays + 1);
-            if (dayName && dayData && dayData.journey_tasks.length > 0) {
+            if (dayData && dayData.journey_tasks.length > 0) {
                 const allCompleted = dayData.journey_tasks.every(t => t.user_task_progress.some(p => p.status === "completed"));
                 weeklyCompletion[dayName] = allCompleted;
             }
-            else if (dayName) {
+            else {
                 weeklyCompletion[dayName] = false;
             }
         }
@@ -640,13 +632,36 @@ export async function sendNudge(userId, buddyLinkId, message) {
         return null;
     }
     // Create nudge
-    return db.buddy_nudges.create({
+    const nudge = await db.buddy_nudges.create({
         data: {
             buddy_link_id: buddyLinkId,
             sender_id: userId,
             message,
         },
     });
+    // Push notify the receiving buddy (best-effort)
+    try {
+        const receiverId = link.user_a === userId ? link.user_b : link.user_a;
+        const tokens = await db.devices
+            .findMany({
+            where: { user_id: receiverId, push_token: { not: null } },
+            orderBy: { created_at: "desc" },
+        })
+            .then((rows) => Array.from(new Set(rows.map((r) => r.push_token).filter((t) => !!t))));
+        if (tokens.length) {
+            await sendPushNotifications(tokens, "Buddy Nudge", message, {
+                screen: "Notifications",
+                params: JSON.stringify({}),
+                kind: "buddy_nudge",
+                buddy_link_id: buddyLinkId,
+                buddy_nudge_id: nudge.id,
+            });
+        }
+    }
+    catch {
+        // ignore push failures; in-app feed still has the nudge
+    }
+    return nudge;
 }
 /**
  * Get nudges received

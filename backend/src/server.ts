@@ -1,6 +1,6 @@
 import "dotenv/config";
 import app from "./app.js";
-import redis from "./db/redis.js";
+import { startNotificationCron } from "./services/notification-cron.service.js";
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -11,9 +11,9 @@ function validateSupabaseConfig() {
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY'
   ];
-
+  
   const missing = requiredVars.filter(v => !process.env[v]);
-
+  
   if (missing.length > 0) {
     console.error('\n❌ Missing required environment variables:');
     missing.forEach(v => console.error(`   - ${v}`));
@@ -21,7 +21,7 @@ function validateSupabaseConfig() {
     console.error('   See env.example for required variables.\n');
     process.exit(1);
   }
-
+  
   // Validate URL format
   const supabaseUrl = process.env.SUPABASE_URL!;
   if (!supabaseUrl.startsWith('https://') || !supabaseUrl.includes('.supabase.co')) {
@@ -30,7 +30,7 @@ function validateSupabaseConfig() {
     console.error('   Expected format: https://[project-ref].supabase.co\n');
     process.exit(1);
   }
-
+  
   console.log('✅ Supabase configuration validated');
   console.log(`   URL: ${supabaseUrl}`);
 }
@@ -41,7 +41,7 @@ async function testSupabaseConnection() {
     const { supabaseAdmin } = await import('./lib/services.js');
     // Try a simple health check - list users (will fail if not connected)
     const { error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1 });
-
+    
     if (error) {
       // If it's a network error, show helpful message
       if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND')) {
@@ -83,35 +83,23 @@ testSupabaseConnection().catch(() => {
 
 const server = app.listen(PORT, () => {
   console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
-
-  // Start cron jobs for push notification triggers
-  import("./services/cron.service.js")
-    .then(({ startCronJobs }) => startCronJobs())
-    .catch((err) => console.error("Failed to start cron jobs:", err));
 });
 
+// Start notification cron (in-process scheduler)
+// You can disable by setting NOTIFICATION_CRON_DISABLED=true
+const stopNotificationCron =
+  process.env.NOTIFICATION_CRON_DISABLED === "true"
+    ? null
+    : startNotificationCron({
+        intervalMs: Number(process.env.NOTIFICATION_CRON_INTERVAL_MS || 60_000),
+      });
 
-// Graceful shutdown handler
-async function gracefulShutdown(signal: string) {
-  console.log(`\n${signal} received, shutting down gracefully...`);
+process.on("SIGTERM", () => {
+  stopNotificationCron?.();
+  server.close(() => process.exit(0));
+});
 
-  // Close HTTP server
-  server.close(async () => {
-    console.log("✅ HTTP server closed");
-
-    // Disconnect Redis
-    await redis.disconnect();
-
-    console.log("👋 Shutdown complete");
-    process.exit(0);
-  });
-
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    console.error("⚠️  Forced shutdown after timeout");
-    process.exit(1);
-  }, 10000);
-}
-
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGINT", () => {
+  stopNotificationCron?.();
+  server.close(() => process.exit(0));
+});

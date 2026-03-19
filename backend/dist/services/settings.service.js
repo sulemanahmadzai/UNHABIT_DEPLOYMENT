@@ -81,11 +81,37 @@ export async function getDevices(userId) {
  * Register a device
  */
 export async function registerDevice(userId, data) {
+    const pushToken = (data.push_token ?? null) || null;
+    // If we have a token, make registration idempotent and avoid duplicates.
+    // We intentionally dedupe in code (not relying on DB uniques) since schema
+    // may not enforce uniqueness for push_token.
+    if (pushToken) {
+        // If this token exists for a different user (e.g. reused device), remove it.
+        await db.devices.deleteMany({
+            where: {
+                push_token: pushToken,
+                user_id: { not: userId },
+            },
+        });
+        const existing = await db.devices.findFirst({
+            where: { user_id: userId, push_token: pushToken },
+            orderBy: { created_at: "desc" },
+        });
+        if (existing) {
+            return db.devices.update({
+                where: { id: existing.id },
+                data: {
+                    platform: data.platform,
+                    app_version: data.app_version ?? existing.app_version,
+                },
+            });
+        }
+    }
     return db.devices.create({
         data: {
             user_id: userId,
             platform: data.platform,
-            push_token: data.push_token ?? null,
+            push_token: pushToken,
             app_version: data.app_version ?? null,
         },
     });

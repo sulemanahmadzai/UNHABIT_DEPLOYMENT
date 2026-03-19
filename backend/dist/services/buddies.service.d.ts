@@ -57,8 +57,8 @@ export declare function submitCheckin(userId: string, data: {
     note?: string | undefined;
 }): Promise<{
     id: string;
-    by_user: string;
     buddy_link_id: string;
+    by_user: string;
     checkin_date: Date;
     note: string | null;
 } | null>;
@@ -75,8 +75,8 @@ export declare function getCheckins(userId: string, buddyLinkId?: string, limit?
     }[];
 } & {
     id: string;
-    by_user: string;
     buddy_link_id: string;
+    by_user: string;
     checkin_date: Date;
     note: string | null;
 })[]>;

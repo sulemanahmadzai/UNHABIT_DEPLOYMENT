@@ -1,6 +1,6 @@
 import "dotenv/config";
 import app from "./app.js";
-import redis from "./db/redis.js";
+import { startNotificationCron } from "./services/notification-cron.service.js";
 const PORT = Number(process.env.PORT || 3000);
 // Validate Supabase configuration
 function validateSupabaseConfig() {
@@ -76,28 +76,20 @@ testSupabaseConnection().catch(() => {
 });
 const server = app.listen(PORT, () => {
     console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
-    // Start cron jobs for push notification triggers
-    import("./services/cron.service.js")
-        .then(({ startCronJobs }) => startCronJobs())
-        .catch((err) => console.error("Failed to start cron jobs:", err));
 });
-// Graceful shutdown handler
-async function gracefulShutdown(signal) {
-    console.log(`\n${signal} received, shutting down gracefully...`);
-    // Close HTTP server
-    server.close(async () => {
-        console.log("✅ HTTP server closed");
-        // Disconnect Redis
-        await redis.disconnect();
-        console.log("👋 Shutdown complete");
-        process.exit(0);
+// Start notification cron (in-process scheduler)
+// You can disable by setting NOTIFICATION_CRON_DISABLED=true
+const stopNotificationCron = process.env.NOTIFICATION_CRON_DISABLED === "true"
+    ? null
+    : startNotificationCron({
+        intervalMs: Number(process.env.NOTIFICATION_CRON_INTERVAL_MS || 60_000),
     });
-    // Force shutdown after 10 seconds
-    setTimeout(() => {
-        console.error("⚠️  Forced shutdown after timeout");
-        process.exit(1);
-    }, 10000);
-}
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => {
+    stopNotificationCron?.();
+    server.close(() => process.exit(0));
+});
+process.on("SIGINT", () => {
+    stopNotificationCron?.();
+    server.close(() => process.exit(0));
+});
 //# sourceMappingURL=server.js.map

@@ -182,7 +182,7 @@ r.post("/sessions/:id/messages", requireAuth, async (req, res, next) => {
     sendPushToUser(req.user!.id, "AI Coach", "You have a new message!", {
       type: "chat",
       sessionId,
-    }).catch((err) => console.error("Push notification error (coach):", err));
+    }).catch((err: unknown) => console.error("Push notification error (coach):", err));
 
     res.json({
       success: true,

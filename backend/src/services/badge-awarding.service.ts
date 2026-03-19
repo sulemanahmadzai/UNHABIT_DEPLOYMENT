@@ -1,5 +1,6 @@
 import { prisma } from "../lib/services.js";
 import * as RewardsService from "./rewards.service.js";
+import { sendPushNotifications } from "./push-notifications.service.js";
 
 interface BadgeAwardResult {
   awarded: boolean;
@@ -42,7 +43,7 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeAwardRes
 
     if (satisfied) {
       // Award the badge
-      await RewardsService.awardBadge(userId, rule.badge_id, {
+      const awarded = await RewardsService.awardBadge(userId, rule.badge_id, {
         rule_type: rule.rule_type,
         threshold: rule.threshold,
         awarded_stats: userStats,
@@ -54,6 +55,28 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeAwardRes
         badge_name: rule.badge_definitions.name,
         badge_slug: rule.badge_definitions.slug,
       });
+
+      // Best-effort push notification for badge earned
+      try {
+        const tokens = await prisma.devices
+          .findMany({
+            where: { user_id: userId, push_token: { not: null } },
+            orderBy: { created_at: "desc" },
+          })
+          .then((rows) => Array.from(new Set(rows.map((r) => r.push_token).filter((t): t is string => !!t))));
+
+        if (tokens.length) {
+          await sendPushNotifications(tokens, "Badge earned!", `You earned: ${awarded.badge_definitions.name}`, {
+            screen: "Notifications",
+            params: JSON.stringify({}),
+            kind: "badge_earned",
+            badge_id: awarded.badge_id,
+            badge_slug: awarded.badge_definitions.slug,
+          });
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -126,12 +149,6 @@ async function getUserStats(userId: string) {
     buddyCount,
     perfectDays,
     pointBalance,
-    buddyCheckins,
-    journeyRestarts,
-    reflections,
-    earlyTasks,
-    nightTasks,
-    weekendCompletions,
   ] = await Promise.all([
     prisma.streaks.findFirst({
       where: { user_id: userId, kind: "task_completion" },
@@ -150,18 +167,6 @@ async function getUserStats(userId: string) {
     }),
     countPerfectDays(userId),
     prisma.point_balances.findUnique({ where: { user_id: userId } }),
-    prisma.buddy_checkins.count({
-      where: { by_user: userId },
-    }),
-    prisma.journeys.count({
-      where: { user_id: userId, status: "active" },
-    }),
-    prisma.reflections.count({
-      where: { user_id: userId },
-    }),
-    countEarlyTasks(userId),
-    countNightTasks(userId),
-    countWeekendCompletions(userId),
   ]);
 
   return {
@@ -172,13 +177,6 @@ async function getUserStats(userId: string) {
     buddies_connected: buddyCount,
     perfect_days: perfectDays,
     total_xp: Number(pointBalance?.total_points ?? 0),
-    buddy_checkins: buddyCheckins,
-    journey_restarts: journeyRestarts,
-    reflections_submitted: reflections,
-    early_tasks: earlyTasks,
-    night_tasks: nightTasks,
-    weekend_completions: weekendCompletions,
-    recovery_streak: streaks?.current_length ?? 0, // Can be enhanced with slip tracking
   };
 }
 
@@ -220,87 +218,6 @@ async function countPerfectDays(userId: string): Promise<number> {
 }
 
 /**
- * Count tasks completed before noon
- */
-async function countEarlyTasks(userId: string): Promise<number> {
-  const tasks = await prisma.user_task_progress.findMany({
-    where: {
-      user_id: userId,
-      status: "completed",
-      completed_at: { not: null },
-    },
-    select: { completed_at: true },
-  });
-
-  return tasks.filter(task => {
-    if (!task.completed_at) return false;
-    const hour = new Date(task.completed_at).getHours();
-    return hour < 12;
-  }).length;
-}
-
-/**
- * Count tasks completed after 8 PM
- */
-async function countNightTasks(userId: string): Promise<number> {
-  const tasks = await prisma.user_task_progress.findMany({
-    where: {
-      user_id: userId,
-      status: "completed",
-      completed_at: { not: null },
-    },
-    select: { completed_at: true },
-  });
-
-  return tasks.filter(task => {
-    if (!task.completed_at) return false;
-    const hour = new Date(task.completed_at).getHours();
-    return hour >= 20;
-  }).length;
-}
-
-/**
- * Count weekend days where all tasks were completed
- */
-async function countWeekendCompletions(userId: string): Promise<number> {
-  const journeyDays = await prisma.journey_days.findMany({
-    where: {
-      journeys: {
-        user_id: userId,
-      },
-    },
-    include: {
-      journey_tasks: {
-        include: {
-          user_task_progress: {
-            where: { user_id: userId },
-          },
-        },
-      },
-    },
-  });
-
-  let weekendCompletions = 0;
-
-  for (const day of journeyDays) {
-    if (day.journey_tasks.length === 0) continue;
-
-    // journey_days has no date field; use day_number mod 7 as a proxy
-    // day_number 1-based: treat day 1 = Mon, so day 7 = Sun, day 6 = Sat
-    const dayOfWeek = day.day_number % 7;
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) continue;
-
-    const allCompleted = day.journey_tasks.every(task =>
-      task.user_task_progress.some(p => p.status === "completed")
-    );
-
-    if (allCompleted) weekendCompletions++;
-  }
-
-  return weekendCompletions;
-}
-
-/**
  * Check if a rule is satisfied based on user stats
  */
 function checkRuleSatisfied(
@@ -314,13 +231,6 @@ function checkRuleSatisfied(
     buddies_connected: number;
     perfect_days: number;
     total_xp: number;
-    buddy_checkins: number;
-    journey_restarts: number;
-    reflections_submitted: number;
-    early_tasks: number;
-    night_tasks: number;
-    weekend_completions: number;
-    recovery_streak: number;
   }
 ): boolean {
   switch (ruleType) {
@@ -340,20 +250,6 @@ function checkRuleSatisfied(
       return stats.perfect_days >= 7;
     case "xp_earned":
       return stats.total_xp >= threshold;
-    case "buddy_checkins":
-      return stats.buddy_checkins >= threshold;
-    case "journey_restarts":
-      return stats.journey_restarts >= threshold;
-    case "reflections_submitted":
-      return stats.reflections_submitted >= threshold;
-    case "early_tasks":
-      return stats.early_tasks >= threshold;
-    case "night_tasks":
-      return stats.night_tasks >= threshold;
-    case "weekend_completions":
-      return stats.weekend_completions >= threshold;
-    case "recovery_streak":
-      return stats.recovery_streak >= threshold;
     default:
       return false;
   }

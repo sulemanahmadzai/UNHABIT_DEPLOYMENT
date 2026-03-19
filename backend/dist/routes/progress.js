@@ -5,6 +5,7 @@ import * as ProgressService from "../services/progress.service.js";
 import * as BadgeAwardingService from "../services/badge-awarding.service.js";
 import * as RewardsService from "../services/rewards.service.js";
 import { getSettingValue } from "../services/admin.service.js";
+import { notifyDailyCompletion } from "../services/notification-events.service.js";
 const r = Router();
 /**
  * POST /api/progress/tasks/:taskId/complete
@@ -192,6 +193,8 @@ r.get("/today", requireAuth, async (req, res, next) => {
 r.post("/complete-day", requireAuth, async (req, res, next) => {
     try {
         const result = await ProgressService.completeDayTasks(req.user.id);
+        // Best-effort push
+        notifyDailyCompletion(req.user.id).catch(() => { });
         res.json({ success: true, data: result });
     }
     catch (error) {

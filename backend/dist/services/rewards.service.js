@@ -1,6 +1,5 @@
 import { db } from "../lib/services.js";
 import { Prisma } from "@prisma/client";
-import * as BadgeAwardingService from "./badge-awarding.service.js";
 /**
  * Get point balance for a user
  */
@@ -112,7 +111,7 @@ export async function awardPoints(userId, amount, ruleId, sourceEventId) {
         },
     });
     // Update balance
-    const balance = await db.point_balances.upsert({
+    return db.point_balances.upsert({
         where: { user_id: userId },
         create: {
             user_id: userId,
@@ -127,11 +126,6 @@ export async function awardPoints(userId, amount, ruleId, sourceEventId) {
             updated_at: new Date(),
         },
     });
-    // Check for XP badges (don't await to avoid slowing down the response)
-    BadgeAwardingService.checkAndAwardBadgeType(userId, 'xp_earned').catch(err => {
-        console.error('Error checking XP badges:', err);
-    });
-    return balance;
 }
 /**
  * Award badge to user
@@ -222,7 +216,7 @@ export async function getLevelInfo(userId) {
  * Get badge gallery with progress
  */
 export async function getBadgeGallery(userId) {
-    const [allBadges, earnedBadges, badgeRules, streaks, taskCount] = await Promise.all([
+    const [allBadges, earnedBadges, streaks, taskCount, focusSessionCount, buddyCount, perfectDaysCount, pointBalance,] = await Promise.all([
         db.badge_definitions.findMany({
             include: { badge_rules: true },
             orderBy: [{ category: "asc" }, { tier: "asc" }],
@@ -231,12 +225,22 @@ export async function getBadgeGallery(userId) {
             where: { user_id: userId },
             select: { badge_id: true, earned_at: true },
         }),
-        db.badge_rules.findMany({ where: { is_active: true } }),
         db.streaks.findFirst({ where: { user_id: userId, kind: "task_completion" } }),
         db.user_task_progress.count({ where: { user_id: userId, status: "completed" } }),
+        db.focus_sessions.count({ where: { user_id: userId, completed: true } }),
+        db.buddy_links.count({
+            where: {
+                OR: [{ user_a: userId }, { user_b: userId }],
+                status: "active",
+            },
+        }),
+        countPerfectDays(userId),
+        db.point_balances.findUnique({ where: { user_id: userId } }),
     ]);
     const earnedMap = new Map(earnedBadges.map(b => [b.badge_id, b.earned_at]));
     const currentStreak = streaks?.current_length ?? 0;
+    const bestStreak = streaks?.best_length ?? 0;
+    const totalXP = Number(pointBalance?.total_points ?? 0);
     // Calculate progress for each badge
     const badges = allBadges.map(badge => {
         const isEarned = earnedMap.has(badge.id);
@@ -250,16 +254,38 @@ export async function getBadgeGallery(userId) {
             switch (rule.rule_type) {
                 case "streak_days":
                     current = currentStreak;
-                    progress = Math.min(100, Math.round((current / required) * 100));
-                    daysLeft = Math.max(0, required - current);
+                    break;
+                case "best_streak":
+                    current = bestStreak;
                     break;
                 case "tasks_completed":
                     current = taskCount;
-                    progress = Math.min(100, Math.round((current / required) * 100));
+                    break;
+                case "focus_sessions":
+                    current = focusSessionCount;
+                    break;
+                case "buddies_connected":
+                    current = buddyCount;
+                    break;
+                case "perfect_days":
+                case "perfect_week":
+                    // "perfect_week" is defined as 7 perfect days in badge-awarding logic
+                    current = perfectDaysCount;
+                    break;
+                case "xp_earned":
+                    current = totalXP;
                     break;
                 default:
-                    progress = isEarned ? 100 : 0;
+                    // If we don't know how to compute the "current" value for this rule type,
+                    // fall back to showing 0 for locked badges and required for earned badges.
+                    current = isEarned ? required : 0;
+                    break;
             }
+            const safeRequired = required > 0 ? required : 1;
+            const displayCurrent = Math.min(current, safeRequired);
+            progress = Math.min(100, Math.round((displayCurrent / safeRequired) * 100));
+            daysLeft = required > 0 ? Math.max(0, required - displayCurrent) : null;
+            current = displayCurrent;
         }
         return {
             id: badge.id,
@@ -286,6 +312,37 @@ export async function getBadgeGallery(userId) {
         total_earned: earnedBadgesList.length,
         total_available: badges.length,
     };
+}
+/**
+ * Count days where every journey task for that day has status "completed".
+ * Used for "perfect_days" / "perfect_week" badge progress calculations.
+ */
+async function countPerfectDays(userId) {
+    const journeyDays = await db.journey_days.findMany({
+        where: {
+            journeys: {
+                user_id: userId,
+            },
+        },
+        include: {
+            journey_tasks: {
+                include: {
+                    user_task_progress: {
+                        where: { user_id: userId },
+                    },
+                },
+            },
+        },
+    });
+    let perfectDays = 0;
+    for (const day of journeyDays) {
+        if (day.journey_tasks.length === 0)
+            continue;
+        const allCompleted = day.journey_tasks.every(task => task.user_task_progress.some(p => p.status === "completed"));
+        if (allCompleted)
+            perfectDays++;
+    }
+    return perfectDays;
 }
 /**
  * Get next badge to earn

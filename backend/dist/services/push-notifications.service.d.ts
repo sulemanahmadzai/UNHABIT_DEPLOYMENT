@@ -1,31 +1,34 @@
+import type { ExpoPushTicket, ExpoPushReceipt } from 'expo-server-sdk';
 /**
- * Push Notifications Service
- * Sends push notifications via Expo Push Notification Service.
- *
- * NOTE: Install the SDK before using in production:
- *   npm install expo-server-sdk
+ * Send push notifications to a list of tokens.
+ * @param tokens Array of Expo Push Tokens
+ * @param title Notification title
+ * @param body Notification body
+ * @param data Optional data payload
  */
-export interface PushPayload {
-    type: string;
-    [key: string]: unknown;
-}
-/**
- * Send push notifications to a list of Expo push tokens.
- * Silently skips invalid tokens; logs errors but never throws.
- */
-export declare function sendPushNotifications(tokens: (string | null | undefined)[], title: string, body: string, data?: PushPayload): Promise<{
-    sent: number;
-    failed: number;
+export declare function sendPushNotifications(tokens: string[], title: string, body: string, data?: Record<string, any>, categoryId?: string): Promise<{
+    tickets: ExpoPushTicket[];
+    receiptIds: string[];
+    tokenTicketPairs: {
+        token: string | undefined;
+        ticket: ExpoPushTicket;
+        receiptId: string | undefined;
+    }[];
 }>;
 /**
- * Retrieve all valid push tokens for a user from the devices table.
+ * Send push notification to a specific user by userId (looks up their devices).
  */
-export declare function getUserPushTokens(userId: string): Promise<string[]>;
+export declare function sendPushToUser(userId: string, title: string, body: string, data?: Record<string, any>): Promise<{
+    tickets: ExpoPushTicket[];
+    receiptIds: string[];
+    tokenTicketPairs: {
+        token: string | undefined;
+        ticket: ExpoPushTicket;
+        receiptId: string | undefined;
+    }[];
+} | null>;
 /**
- * Convenience: send push to a user by user ID (fetches tokens internally)
+ * Process receipts (optional, for checking delivery errors like invalid tokens)
  */
-export declare function sendPushToUser(userId: string, title: string, body: string, data?: PushPayload): Promise<{
-    sent: number;
-    failed: number;
-}>;
+export declare function checkPushReceipts(receiptIds: string[]): Promise<Record<string, ExpoPushReceipt>>;
 //# sourceMappingURL=push-notifications.service.d.ts.map
