@@ -129,11 +129,16 @@ def _llm_json(
     Call the JSON-optimized LLM and return a Python dict.
     Retries with slightly higher temperature and stronger JSON instructions if parsing fails.
     """
-    for attempt in range(retries):
+    # Ensure at least one attempt
+    attempts = max(1, retries + 1)
+    
+    for attempt in range(attempts):
         llm = ChatOpenAI(
             model=MODEL_JSON,
             temperature=temperature + (attempt * 0.2),
             response_format={"type": "json_object"},
+            timeout=90.0,  # 90 second timeout for complex operations
+            max_retries=1,  # Reduce internal retries since we handle retries ourselves
         )
 
         resp = llm.invoke(prompt).content
@@ -142,10 +147,11 @@ def _llm_json(
             return json.loads(resp)
         except Exception:
             # strengthen instructions & increase randomness
-            prompt += (
-                "\nReturn STRICT JSON. No commentary. "
-                "Do NOT repeat previous suggestions."
-            )
+            if attempt < attempts - 1:  # Don't modify prompt on last attempt
+                prompt += (
+                    "\nReturn STRICT JSON. No commentary. "
+                    "Do NOT repeat previous suggestions."
+                )
             continue
 
     # final fallback if everything fails
@@ -159,6 +165,8 @@ def _json_llm(temperature: float = 0.3) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL_JSON,
         temperature=temperature,
+        timeout=90.0,  # 90 second timeout
+        max_retries=1,
     )
 
 
@@ -169,6 +177,8 @@ def _text_llm(temperature: float = 0.6) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL_TEXT,
         temperature=temperature,
+        timeout=60.0,  # 60 second timeout for text generation
+        max_retries=1,
     )
 
 
@@ -870,6 +880,8 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
     """
     Generate the 21-day plan using the QuizSummary as context
     + category-specific guidance so different habits feel truly different.
+    
+    Optimized to handle timeouts by using fallback more aggressively.
     """
     if not state.quiz_summary:
         return {"plan21": _fallback_plan21(None)}
@@ -882,13 +894,21 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         category_guidance=guidance,
     )
 
-    # 🔹 Use your JSON LLM helper, NOT MODEL_JSON, NOT _json_llm
-    data = _llm_json(prompt, max_tokens=1600, temperature=0.35)
-
     try:
+        # Generate plan with higher token limit for 21 days of tasks
+        # Use 1 retry (= 2 total attempts) to balance speed vs reliability
+        data = _llm_json(prompt, max_tokens=4000, temperature=0.35, retries=1)
+
         # Basic sanitization — day_tasks values should be lists of task dicts
         day_tasks = data.get("day_tasks", {}) or {}
         fallback = _fallback_plan21(state.quiz_summary)
+        
+        # Validate we got at least some days
+        if not day_tasks or len(day_tasks) < 10:
+            # If we got less than 10 days, just use fallback
+            print(f"[plan21_node] LLM returned insufficient days ({len(day_tasks)}), using fallback")
+            return {"plan21": fallback}
+        
         for i in range(1, 22):
             key = f"day_{i}"
             if key not in day_tasks or not isinstance(day_tasks[key], list) or len(day_tasks[key]) < 2:
@@ -905,7 +925,10 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
             )
 
         plan = Plan21D(**data)
-    except:
+        print(f"[plan21_node] ✅ Successfully generated AI plan with {len(day_tasks)} days")
+    except Exception as e:
+        # Log the error but use fallback instead of failing
+        print(f"[plan21_node] ⚠️ LLM generation failed: {e}, using fallback")
         plan = _fallback_plan21(state.quiz_summary)
 
     return {"plan21": plan}

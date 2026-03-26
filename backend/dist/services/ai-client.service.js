@@ -12,7 +12,7 @@
 import redis from "../db/redis.js";
 import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
-const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "30000", 10);
+const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "120000", 10); // 2 minutes for complex AI operations
 // Cache TTLs for different AI endpoints (in seconds)
 const CACHE_TTL = {
     ONBOARDING: 3600, // 1 hour
@@ -281,7 +281,7 @@ export async function generatePlan21D(request) {
             quiz_summary: quizSummary,
         },
     };
-    const result = await makeRequest("/plan-21d", aiServiceRequest, 2, CACHE_TTL.PLAN_21D);
+    const result = await makeRequest("/plan-21d", aiServiceRequest, 3, CACHE_TTL.PLAN_21D); // 3 retries for expensive operation
     // If main endpoint fails, try fallback
     if (!result.success) {
         console.log("Primary plan generation failed, trying fallback...");
