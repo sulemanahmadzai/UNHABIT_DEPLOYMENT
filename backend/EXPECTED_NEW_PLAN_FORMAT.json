@@ -1,0 +1,66 @@
+{
+  "plan_summary": "This 21-day intervention dismantles excessive social media use by reshaping identity, introducing discomfort, and creating irreversible changes in behavior and environment.",
+  "day_tasks": {
+    "day_1": [
+      {
+        "title": "Track your scrolling patterns",
+        "description": "Write down when and why you scroll social media. No pressure to change yet.",
+        "kind": "reflection"
+      },
+      {
+        "title": "Identify your main trigger",
+        "description": "Note the one situation or feeling that most often leads to scrolling.",
+        "kind": "cognitive"
+      },
+      {
+        "title": "Set your intention",
+        "description": "Write one sentence about why reducing social media matters to you.",
+        "kind": "identity"
+      }
+    ],
+    "day_2": [
+      {
+        "title": "Remove apps from home screen",
+        "description": "Move social media apps to a folder on the second screen or delete them.",
+        "kind": "environmental"
+      },
+      {
+        "title": "Pause before opening",
+        "description": "Before opening any social app, pause 30 seconds and name what you're feeling.",
+        "kind": "cognitive"
+      },
+      {
+        "title": "Choose an alternative",
+        "description": "Pick a 5-minute healthy activity to try when the urge to scroll appears.",
+        "kind": "behavioral"
+      },
+      {
+        "title": "Set a daily limit",
+        "description": "Use your phone's screen time settings to set a 30-minute daily limit.",
+        "kind": "environmental"
+      }
+    ],
+    "day_3": [
+      {
+        "title": "Disable notifications",
+        "description": "Turn off all social media notifications for 24 hours.",
+        "kind": "environmental"
+      },
+      {
+        "title": "Practice urge surfing",
+        "description": "When an urge to scroll appears, breathe deeply for 2 minutes and observe it.",
+        "kind": "cognitive"
+      },
+      {
+        "title": "Replace evening scrolling",
+        "description": "Replace your usual evening scroll session with a 20-minute walk.",
+        "kind": "behavioral"
+      }
+    ]
+  },
+  "day_whys": {
+    "day_1": "These tasks help you understand your habit pattern without judgment, which is essential for creating lasting change.",
+    "day_2": "By adding friction and creating alternatives, you're making it harder to scroll automatically and easier to choose something better.",
+    "day_3": "Removing triggers and practicing urge management gives you control over your responses instead of reacting automatically."
+  }
+}

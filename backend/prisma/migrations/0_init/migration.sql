@@ -1,0 +1,6 @@
+-- Baseline migration
+-- This file is intentionally empty.
+-- The database schema already exists in Supabase and was created outside of Prisma Migrate.
+-- This baseline tells Prisma Migrate to start tracking from this point forward
+-- without trying to recreate existing tables.
+-- See: https://pris.ly/d/migrate-baseline
