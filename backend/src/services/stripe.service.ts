@@ -2,13 +2,13 @@ import Stripe from 'stripe';
 import { prisma } from '../db/prisma.js';
 
 if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is required');
+  console.warn('⚠️  STRIPE_SECRET_KEY is not set. Stripe features will be disabled.');
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-02-25.clover',
   typescript: true,
-});
+}) : null;
 
 export interface CreateCheckoutSessionParams {
   userId: string;
@@ -27,6 +27,7 @@ export interface CreatePortalSessionParams {
  * Create a Stripe Checkout Session for subscription
  */
 export async function createCheckoutSession(params: CreateCheckoutSessionParams) {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
   const { userId, priceId, successUrl, cancelUrl, customerEmail } = params;
 
   // Check if user already has an active subscription
@@ -109,6 +110,7 @@ export async function createCheckoutSession(params: CreateCheckoutSessionParams)
  * Create a Stripe Customer Portal Session
  */
 export async function createPortalSession(params: CreatePortalSessionParams) {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
   const { customerId, returnUrl } = params;
 
   const session = await stripe.billingPortal.sessions.create({
@@ -148,6 +150,7 @@ export async function getUserSubscription(userId: string) {
  * Cancel a subscription at period end
  */
 export async function cancelSubscription(userId: string) {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
   const subscription = await prisma.subscriptions.findFirst({
     where: {
       user_id: userId,
@@ -183,6 +186,7 @@ export async function cancelSubscription(userId: string) {
  * Reactivate a canceled subscription
  */
 export async function reactivateSubscription(userId: string) {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
   const subscription = await prisma.subscriptions.findFirst({
     where: {
       user_id: userId,
