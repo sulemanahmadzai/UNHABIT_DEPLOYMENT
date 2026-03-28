@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-declare const stripe: Stripe;
+declare const stripe: Stripe | null;
 export interface CreateCheckoutSessionParams {
     userId: string;
     priceId: string;
