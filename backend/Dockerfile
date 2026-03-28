@@ -3,6 +3,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Ensure NODE_ENV is NOT production during build (so devDeps are installed)
+ENV NODE_ENV=development
+
 # Copy package files first for better layer caching
 COPY package.json package-lock.json ./
 
