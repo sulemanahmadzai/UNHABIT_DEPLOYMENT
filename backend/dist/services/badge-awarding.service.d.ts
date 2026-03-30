@@ -14,6 +14,10 @@ export declare function checkAndAwardBadges(userId: string): Promise<BadgeAwardR
  */
 export declare function checkAndAwardBadgeType(userId: string, ruleType: string): Promise<BadgeAwardResult | null>;
 /**
+ * Invalidate user stats cache (call after completing tasks, earning badges, etc.)
+ */
+export declare function invalidateUserStatsCache(userId: string): Promise<void>;
+/**
  * Called after task completion to check badges and update streak
  */
 export declare function onTaskCompleted(userId: string, taskId: string): Promise<{

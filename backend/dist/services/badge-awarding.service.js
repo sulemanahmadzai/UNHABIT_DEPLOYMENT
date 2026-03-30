@@ -1,6 +1,9 @@
 import { prisma } from "../lib/services.js";
 import * as RewardsService from "./rewards.service.js";
 import { sendPushNotifications } from "./push-notifications.service.js";
+import redis from "../db/redis.js";
+// Cache TTL for user stats (5 minutes)
+const USER_STATS_CACHE_TTL = 300;
 /**
  * Check and award badges for a user based on their current stats
  * This should be called after completing tasks, streaks, etc.
@@ -108,9 +111,16 @@ export async function checkAndAwardBadgeType(userId, ruleType) {
     return null;
 }
 /**
- * Get user stats for badge checking
+ * Get user stats for badge checking (with Redis caching)
  */
 async function getUserStats(userId) {
+    // Try to get from cache first
+    const cacheKey = `user:${userId}:badge_stats`;
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+    // Cache miss - fetch from database
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const [streaks, totalTasksCompleted, totalFocusSessions, buddyCount, perfectDays, pointBalance,] = await Promise.all([
@@ -132,7 +142,7 @@ async function getUserStats(userId) {
         countPerfectDays(userId),
         prisma.point_balances.findUnique({ where: { user_id: userId } }),
     ]);
-    return {
+    const stats = {
         streak_days: streaks?.current_length ?? 0,
         best_streak: streaks?.best_length ?? 0,
         tasks_completed: totalTasksCompleted,
@@ -141,6 +151,16 @@ async function getUserStats(userId) {
         perfect_days: perfectDays,
         total_xp: Number(pointBalance?.total_points ?? 0),
     };
+    // Cache for 5 minutes
+    await redis.set(cacheKey, stats, USER_STATS_CACHE_TTL);
+    return stats;
+}
+/**
+ * Invalidate user stats cache (call after completing tasks, earning badges, etc.)
+ */
+export async function invalidateUserStatsCache(userId) {
+    const cacheKey = `user:${userId}:badge_stats`;
+    await redis.del(cacheKey);
 }
 /**
  * Count days where all tasks were completed
