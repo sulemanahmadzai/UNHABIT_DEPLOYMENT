@@ -1,5 +1,22 @@
 import Stripe from 'stripe';
+/** Keep in sync with ephemeral key creation and Supabase stripe-webhook Stripe client. */
+export declare const STRIPE_API_VERSION: "2026-02-25.clover";
 declare const stripe: Stripe | null;
+export declare const ONE_TIME_PAYMENT_FLOW = "one_time_payment_sheet";
+/**
+ * Resolve or create Stripe Customer + DB row for app user.
+ */
+export declare function ensureStripeCustomer(userId: string, customerEmail?: string | undefined): Promise<string>;
+export interface CreatePaymentSheetOneTimeParams {
+    userId: string;
+    priceId: string;
+    customerEmail?: string | undefined;
+}
+export interface PaymentSheetOneTimeResult {
+    paymentIntentClientSecret: string;
+    ephemeralKeySecret: string;
+    customerId: string;
+}
 export interface CreateCheckoutSessionParams {
     userId: string;
     priceId: string;
@@ -18,6 +35,11 @@ export declare function createCheckoutSession(params: CreateCheckoutSessionParam
     sessionId: string;
     url: string | null;
 }>;
+/**
+ * PaymentIntent + ephemeral key for @stripe/stripe-react-native PaymentSheet (one-time Price only).
+ * Amount/currency come from Stripe Price — never from the client.
+ */
+export declare function createPaymentSheetParamsForOneTimePrice(params: CreatePaymentSheetOneTimeParams): Promise<PaymentSheetOneTimeResult>;
 /**
  * Create a Stripe Customer Portal Session
  */

@@ -1,9 +1,14 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import Stripe from 'https://esm.sh/stripe@14.10.0?target=deno';
+import Stripe from 'https://esm.sh/stripe@20.4.1?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
+/** Must match backend STRIPE_API_VERSION / Stripe Node client. */
+const STRIPE_API_VERSION = '2026-02-25.clover';
+
+const ONE_TIME_PAYMENT_FLOW = 'one_time_payment_sheet';
+
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
-  apiVersion: '2024-12-18.acacia',
+  apiVersion: STRIPE_API_VERSION,
   httpClient: Stripe.createFetchHttpClient(),
 });
 
@@ -49,6 +54,14 @@ serve(async (req) => {
 
       case 'checkout.session.completed':
         await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
+
+      case 'payment_intent.succeeded':
+        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
+        break;
+
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
         break;
 
       default:
@@ -217,4 +230,77 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   if (session.mode === 'subscription' && session.subscription) {
     console.log(`Checkout completed for subscription ${session.subscription}`);
   }
+}
+
+async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
+  if (pi.metadata?.flow !== ONE_TIME_PAYMENT_FLOW) {
+    console.log(`Skipping payment_intent.succeeded for ${pi.id} (not PaymentSheet one-time flow)`);
+    return;
+  }
+
+  const userId = pi.metadata?.user_id;
+  if (!userId) {
+    console.error('No user_id in payment intent metadata');
+    return;
+  }
+
+  const amount = pi.amount_received ?? pi.amount;
+  const paymentMethodType = pi.payment_method_types?.[0] ?? 'card';
+
+  const { error } = await supabase.from('payment_history').upsert(
+    {
+      user_id: userId,
+      stripe_payment_intent_id: pi.id,
+      stripe_invoice_id: null,
+      amount,
+      currency: pi.currency,
+      status: 'succeeded',
+      payment_method_type: paymentMethodType,
+      created_at: new Date().toISOString(),
+    },
+    { onConflict: 'stripe_payment_intent_id' },
+  );
+
+  if (error) {
+    console.error('Error upserting payment_history for PI success:', error);
+    throw error;
+  }
+
+  console.log(`Recorded one-time payment for PI ${pi.id}, user ${userId}`);
+}
+
+async function handlePaymentIntentFailed(pi: Stripe.PaymentIntent) {
+  if (pi.metadata?.flow !== ONE_TIME_PAYMENT_FLOW) {
+    console.log(`Skipping payment_intent.payment_failed for ${pi.id} (not PaymentSheet one-time flow)`);
+    return;
+  }
+
+  const userId = pi.metadata?.user_id;
+  if (!userId) {
+    console.error('No user_id in payment intent metadata');
+    return;
+  }
+
+  const paymentMethodType = pi.payment_method_types?.[0] ?? 'card';
+
+  const { error } = await supabase.from('payment_history').upsert(
+    {
+      user_id: userId,
+      stripe_payment_intent_id: pi.id,
+      stripe_invoice_id: null,
+      amount: pi.amount,
+      currency: pi.currency,
+      status: 'failed',
+      payment_method_type: paymentMethodType,
+      created_at: new Date().toISOString(),
+    },
+    { onConflict: 'stripe_payment_intent_id' },
+  );
+
+  if (error) {
+    console.error('Error upserting payment_history for PI failure:', error);
+    throw error;
+  }
+
+  console.log(`Recorded failed one-time payment for PI ${pi.id}, user ${userId}`);
 }

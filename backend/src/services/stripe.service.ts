@@ -1,14 +1,82 @@
 import Stripe from 'stripe';
 import { prisma } from '../db/prisma.js';
 
+/** Keep in sync with ephemeral key creation and Supabase stripe-webhook Stripe client. */
+export const STRIPE_API_VERSION = '2026-02-25.clover' as const;
+
 if (!process.env.STRIPE_SECRET_KEY) {
   console.warn('⚠️  STRIPE_SECRET_KEY is not set. Stripe features will be disabled.');
 }
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2026-02-25.clover',
+  apiVersion: STRIPE_API_VERSION,
   typescript: true,
 }) : null;
+
+export const ONE_TIME_PAYMENT_FLOW = 'one_time_payment_sheet';
+
+function parseOneTimePriceAllowlist(): Set<string> | null {
+  const raw = process.env.STRIPE_ALLOWED_ONE_TIME_PRICE_IDS?.trim();
+  if (!raw) {
+    return null;
+  }
+  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return new Set(ids);
+}
+
+function throwBadRequest(message: string): never {
+  const err = new Error(message);
+  (err as NodeJS.ErrnoException & { statusCode?: number }).statusCode = 400;
+  throw err;
+}
+
+/**
+ * Resolve or create Stripe Customer + DB row for app user.
+ */
+export async function ensureStripeCustomer(
+  userId: string,
+  customerEmail?: string | undefined,
+): Promise<string> {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+
+  const existing = await prisma.stripe_customers.findUnique({
+    where: { user_id: userId },
+  });
+  if (existing) {
+    return existing.stripe_customer_id;
+  }
+
+  const customerData: Stripe.CustomerCreateParams = {
+    metadata: { user_id: userId },
+  };
+  if (customerEmail) {
+    customerData.email = customerEmail;
+  }
+
+  const stripeCustomer = await stripe.customers.create(customerData);
+
+  await prisma.stripe_customers.create({
+    data: {
+      user_id: userId,
+      stripe_customer_id: stripeCustomer.id,
+      email: customerEmail ?? null,
+    },
+  });
+
+  return stripeCustomer.id;
+}
+
+export interface CreatePaymentSheetOneTimeParams {
+  userId: string;
+  priceId: string;
+  customerEmail?: string | undefined;
+}
+
+export interface PaymentSheetOneTimeResult {
+  paymentIntentClientSecret: string;
+  ephemeralKeySecret: string;
+  customerId: string;
+}
 
 export interface CreateCheckoutSessionParams {
   userId: string;
@@ -42,40 +110,7 @@ export async function createCheckoutSession(params: CreateCheckoutSessionParams)
     throw new Error('User already has an active subscription');
   }
 
-  // Get or create Stripe customer
-  let customer = await prisma.stripe_customers.findUnique({
-    where: { user_id: userId },
-  });
-
-  let customerId: string;
-
-  if (customer) {
-    customerId = customer.stripe_customer_id;
-  } else {
-    // Create new Stripe customer
-    const customerData: any = {
-      metadata: {
-        user_id: userId,
-      },
-    };
-    
-    if (customerEmail) {
-      customerData.email = customerEmail;
-    }
-    
-    const stripeCustomer = await stripe.customers.create(customerData);
-
-    // Save to database
-    customer = await prisma.stripe_customers.create({
-      data: {
-        user_id: userId,
-        stripe_customer_id: stripeCustomer.id,
-        email: customerEmail || null,
-      },
-    });
-
-    customerId = stripeCustomer.id;
-  }
+  const customerId = await ensureStripeCustomer(userId, customerEmail);
 
   // Create checkout session
   const session = await stripe.checkout.sessions.create({
@@ -103,6 +138,66 @@ export async function createCheckoutSession(params: CreateCheckoutSessionParams)
   return {
     sessionId: session.id,
     url: session.url,
+  };
+}
+
+/**
+ * PaymentIntent + ephemeral key for @stripe/stripe-react-native PaymentSheet (one-time Price only).
+ * Amount/currency come from Stripe Price — never from the client.
+ */
+export async function createPaymentSheetParamsForOneTimePrice(
+  params: CreatePaymentSheetOneTimeParams,
+): Promise<PaymentSheetOneTimeResult> {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+  const { userId, priceId, customerEmail } = params;
+
+  const allowlist = parseOneTimePriceAllowlist();
+  if (allowlist && !allowlist.has(priceId)) {
+    throwBadRequest('This price is not available for purchase');
+  }
+
+  const price = await stripe.prices.retrieve(priceId);
+  if (!price.active) {
+    throwBadRequest('Price is not active');
+  }
+  if (price.type !== 'one_time') {
+    throwBadRequest('Only one-time prices are supported for PaymentSheet checkout');
+  }
+  if (price.unit_amount == null) {
+    throwBadRequest('Price has no fixed unit amount');
+  }
+
+  const customerId = await ensureStripeCustomer(userId, customerEmail);
+
+  const ephemeralKey = await stripe.ephemeralKeys.create(
+    { customer: customerId },
+    { apiVersion: STRIPE_API_VERSION },
+  );
+
+  if (!ephemeralKey.secret) {
+    throw new Error('Stripe did not return an ephemeral key secret');
+  }
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: price.unit_amount,
+    currency: price.currency,
+    customer: customerId,
+    automatic_payment_methods: { enabled: true },
+    metadata: {
+      user_id: userId,
+      price_id: priceId,
+      flow: ONE_TIME_PAYMENT_FLOW,
+    },
+  });
+
+  if (!paymentIntent.client_secret) {
+    throw new Error('Stripe did not return a PaymentIntent client secret');
+  }
+
+  return {
+    paymentIntentClientSecret: paymentIntent.client_secret,
+    ephemeralKeySecret: ephemeralKey.secret,
+    customerId,
   };
 }
 

@@ -50,6 +50,8 @@ Events to listen for:
 - ✅ invoice.payment_succeeded
 - ✅ invoice.payment_failed
 - ✅ checkout.session.completed
+- ✅ payment_intent.succeeded (one-time PaymentSheet)
+- ✅ payment_intent.payment_failed (one-time PaymentSheet)
 
 ---
 
@@ -67,7 +69,7 @@ npm run test:stripe
 curl http://localhost:3000/api/stripe/config
 ```
 
-#### 2. Create Checkout Session
+#### 2. Create Checkout Session (web subscription — redirects to Stripe-hosted page)
 ```bash
 curl -X POST http://localhost:3000/api/stripe/create-checkout-session \
   -H "Authorization: Bearer YOUR_TOKEN" \
@@ -78,6 +80,22 @@ curl -X POST http://localhost:3000/api/stripe/create-checkout-session \
     "cancelUrl": "http://localhost:3000/cancel"
   }'
 ```
+
+#### 2b. Create Payment Sheet session (React Native — one-time Stripe Price)
+Use a Price whose **type** is **one-time** in the Stripe Dashboard.
+
+```bash
+curl -X POST http://localhost:3000/api/stripe/create-payment-sheet \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"priceId": "price_YOUR_ONE_TIME_PRICE_ID"}'
+```
+
+Response includes `paymentIntent`, `ephemeralKey`, `customer`, `publishableKey` for `@stripe/stripe-react-native` (`initPaymentSheet` / `presentPaymentSheet`). Treat payment as confirmed only after your backend reflects webhook results (e.g. `payment_history`), not only client success.
+
+Optional: set **`STRIPE_ALLOWED_ONE_TIME_PRICE_IDS`** (comma-separated) so only approved Price IDs are accepted.
+
+Automated test: set **`STRIPE_ONE_TIME_PRICE_ID`** in `.env` and run `npm run test:stripe`.
 
 #### 3. Complete Checkout
 - Visit the returned URL
@@ -99,7 +117,8 @@ All endpoints are prefixed with `/api/stripe`
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | GET | `/config` | Get publishable key | No |
-| POST | `/create-checkout-session` | Create checkout | Yes |
+| POST | `/create-payment-sheet` | One-time PaymentIntent + ephemeral key (mobile PaymentSheet) | Yes |
+| POST | `/create-checkout-session` | Hosted Checkout URL (subscription) | Yes |
 | GET | `/subscription` | Get subscription status | Yes |
 | POST | `/create-portal-session` | Create customer portal | Yes |
 | POST | `/cancel-subscription` | Cancel subscription | Yes |

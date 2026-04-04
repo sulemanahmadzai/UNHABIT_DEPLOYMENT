@@ -76,6 +76,42 @@ async function testGetSubscription() {
   }
 }
 
+async function testCreatePaymentSheetOneTime(priceId: string) {
+  try {
+    const response = await api.post('/api/stripe/create-payment-sheet', {
+      priceId,
+    });
+
+    const hasPi = !!response.data.paymentIntent;
+    const hasEk = !!response.data.ephemeralKey;
+    const hasCustomer = !!response.data.customer;
+
+    logTest(
+      'Create Payment Sheet (one-time)',
+      hasPi && hasEk && hasCustomer,
+      hasPi && hasEk && hasCustomer
+        ? undefined
+        : 'Missing paymentIntent, ephemeralKey, or customer',
+      {
+        publishableKey: response.data.publishableKey ? '(set)' : null,
+        customer: response.data.customer,
+      },
+    );
+
+    if (hasPi) {
+      console.log(
+        '\n   Use @stripe/stripe-react-native: initPaymentSheet + presentPaymentSheet with the returned secrets.\n',
+      );
+    }
+
+    return response.data;
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.error || error.message;
+    logTest('Create Payment Sheet (one-time)', false, errorMessage);
+    return null;
+  }
+}
+
 async function testCreateCheckoutSession() {
   try {
     const response = await api.post('/api/stripe/create-checkout-session', {
@@ -205,6 +241,18 @@ async function runTests() {
   console.log('📋 Test 3: Create Checkout Session');
   await testCreateCheckoutSession();
   console.log('');
+
+  const oneTimePriceId = process.env.STRIPE_ONE_TIME_PRICE_ID?.trim();
+  if (oneTimePriceId) {
+    console.log('📋 Test 3b: Create Payment Sheet (one-time, React Native)');
+    await testCreatePaymentSheetOneTime(oneTimePriceId);
+    console.log('');
+  } else {
+    console.log(
+      '📋 Skipping Payment Sheet test — set STRIPE_ONE_TIME_PRICE_ID in .env to a Stripe **one-time** Price id',
+    );
+    console.log('');
+  }
 
   // Test 4: Create Portal Session
   console.log('📋 Test 4: Create Customer Portal Session');

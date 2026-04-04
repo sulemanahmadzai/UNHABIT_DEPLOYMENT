@@ -59,12 +59,20 @@ ZIP: Any ZIP code
 
 ```
 GET  /api/stripe/config                    - Get publishable key
-POST /api/stripe/create-checkout-session   - Create checkout
+POST /api/stripe/create-payment-sheet      - PaymentIntent + ephemeral key (one-time Price, React Native PaymentSheet)
+POST /api/stripe/create-checkout-session   - Hosted Stripe Checkout URL (subscription; web redirect flow)
 GET  /api/stripe/subscription              - Get subscription
 POST /api/stripe/create-portal-session     - Customer portal
 POST /api/stripe/cancel-subscription       - Cancel subscription
 POST /api/stripe/reactivate-subscription   - Reactivate subscription
 ```
+
+### React Native (one-time)
+
+- Use **`POST /api/stripe/create-payment-sheet`** with body `{ "priceId": "<Stripe one_time Price id>" }` (authenticated).
+- Amount and currency are taken from the Price in Stripe, not from the client.
+- Optional env **`STRIPE_ALLOWED_ONE_TIME_PRICE_IDS`**: comma-separated Price IDs. If set, only those prices can be purchased.
+- Response fields map to PaymentSheet: `paymentIntent` (client secret), `ephemeralKey`, `customer`, `publishableKey`.
 
 ## 🔒 Security Features
 
@@ -88,6 +96,8 @@ POST /api/stripe/reactivate-subscription   - Reactivate subscription
 - `invoice.payment_succeeded`
 - `invoice.payment_failed`
 - `checkout.session.completed`
+- `payment_intent.succeeded` (one-time PaymentSheet flow; writes `payment_history` when `metadata.flow` is `one_time_payment_sheet`)
+- `payment_intent.payment_failed` (same flow)
 
 ## 📚 Documentation
 
