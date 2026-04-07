@@ -8,6 +8,38 @@ const r = Router();
  * POST /api/stripe/create-checkout-session
  * Create a Stripe Checkout Session for subscription
  */
+/**
+ * POST /api/stripe/create-payment-sheet
+ * One-time PaymentIntent + ephemeral key for React Native PaymentSheet (amount from Stripe Price).
+ */
+r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            priceId: z.string().min(1),
+        });
+        const data = schema.parse(req.body);
+        const userId = req.user.id;
+        const user = await prisma.users.findUnique({
+            where: { id: userId },
+            select: { email: true },
+        });
+        const sheet = await StripeService.createPaymentSheetParamsForOneTimePrice({
+            userId,
+            priceId: data.priceId,
+            customerEmail: user?.email ?? undefined,
+        });
+        res.json({
+            success: true,
+            paymentIntent: sheet.paymentIntentClientSecret,
+            ephemeralKey: sheet.ephemeralKeySecret,
+            customer: sheet.customerId,
+            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 r.post('/create-checkout-session', requireAuth, async (req, res, next) => {
     try {
         const schema = z.object({

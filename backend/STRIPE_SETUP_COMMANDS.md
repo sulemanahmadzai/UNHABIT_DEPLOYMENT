@@ -89,6 +89,12 @@ curl -X POST http://localhost:3000/api/stripe/create-checkout-session \
     "cancelUrl": "http://localhost:3000/cancel"
   }'
 
+# Create Payment Sheet session — one-time Price (React Native); replace YOUR_ONE_TIME_PRICE
+curl -X POST http://localhost:3000/api/stripe/create-payment-sheet \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"priceId": "YOUR_ONE_TIME_PRICE"}'
+
 # Get subscription
 curl http://localhost:3000/api/stripe/subscription \
   -H "Authorization: Bearer YOUR_TOKEN"
