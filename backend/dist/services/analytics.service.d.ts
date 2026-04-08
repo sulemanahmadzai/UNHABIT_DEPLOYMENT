@@ -79,8 +79,8 @@ export declare function getInsights(userId: string, limit: number): Promise<{
     user_id: string;
     id: string;
     title: string;
-    source: string;
     body: string | null;
+    source: string;
     valid_from: Date | null;
     valid_to: Date | null;
 }[]>;

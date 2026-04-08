@@ -106,6 +106,15 @@ export declare function getProfile(userId: string): Promise<{
     updated_at: Date;
 } | null>;
 /**
+ * One-time PaymentSheet purchases are stored in payment_history with status succeeded
+ * and stripe_invoice_id null (subscription invoice payments set invoice id).
+ */
+export declare function getOneTimePurchaseEntitlement(userId: string): Promise<{
+    has_paid: boolean;
+    has_premium: boolean;
+    one_time_purchase_at: string | null;
+}>;
+/**
  * Mark user as onboarded
  */
 export declare function markOnboarded(userId: string): Promise<{

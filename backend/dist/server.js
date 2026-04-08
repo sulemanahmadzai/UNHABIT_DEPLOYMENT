@@ -1,6 +1,7 @@
 import "dotenv/config";
 import app from "./app.js";
 import { startNotificationCron } from "./services/notification-cron.service.js";
+import { startCronJobs } from "./services/cron.service.js";
 const PORT = Number(process.env.PORT || 3000);
 // Validate Supabase configuration
 function validateSupabaseConfig() {
@@ -77,13 +78,16 @@ testSupabaseConnection().catch(() => {
 const server = app.listen(PORT, () => {
     console.log(`\n🚀 API listening on http://localhost:${PORT}\n`);
 });
-// Start notification cron (in-process scheduler)
-// You can disable by setting NOTIFICATION_CRON_DISABLED=true
+// Start notification cron (in-process scheduler for task reminders, scheduled nudges, receipts)
 const stopNotificationCron = process.env.NOTIFICATION_CRON_DISABLED === "true"
     ? null
     : startNotificationCron({
         intervalMs: Number(process.env.NOTIFICATION_CRON_INTERVAL_MS || 60_000),
     });
+// Start comprehensive scenario-based cron jobs (timezone-aware daily scenarios, weekly, billing)
+if (process.env.NOTIFICATION_CRON_DISABLED !== "true") {
+    startCronJobs().catch((e) => console.error("[cron] Failed to start scenario cron jobs:", e));
+}
 process.on("SIGTERM", () => {
     stopNotificationCron?.();
     server.close(() => process.exit(0));

@@ -44,8 +44,8 @@ export declare function getSentInvites(userId: string): Promise<{
  */
 export declare function acceptInvite(userId: string, inviteCode: string): Promise<{
     id: string;
-    started_at: Date;
     status: string;
+    started_at: Date;
     user_b: string;
     user_a: string;
 } | null>;

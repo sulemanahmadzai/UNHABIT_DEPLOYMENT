@@ -207,13 +207,29 @@ if (presentError) {
 
 **Purpose:** The device may say “success,” but your **backend** should decide if the user really paid (webhook latency, retries, fraud).
 
-**What the backend does (automatic):** Stripe sends **`payment_intent.succeeded`** to your **Supabase `stripe-webhook`** function. The server writes/updates **`payment_history`** for the user (when metadata matches the one-time PaymentSheet flow).
+**What the backend does (automatic):** Stripe sends **`payment_intent.succeeded`** to your **Supabase `stripe-webhook`** function. The function records a row in **`payment_history`** (one-time flow only: `metadata.flow === "one_time_payment_sheet"`).
 
 **What the React Native app should do**
 
-1. After `presentPaymentSheet` resolves without error, **call your own API** to refresh user state — e.g. profile, “has premium,” feature flags — whatever your app already uses. If no endpoint exists yet, add one that reads `payment_history` or a derived flag.
-2. Optionally show a short **loading** state (“Confirming purchase…”) while polling once or twice if the webhook is a few seconds slow.
-3. **Do not** unlock premium **only** from client-side success without checking the server, if you care about consistency.
+1. After `presentPaymentSheet` resolves without error, call **`GET /api/auth/me`** with the same Bearer token (or refetch until ready).
+2. Treat the user as unlocked when the response includes **`has_paid: true`** (and/or **`has_premium: true`** — same meaning for this product). Use **`one_time_purchase_at`** (ISO string or `null`) if you need a timestamp.
+3. Optionally poll **`GET /api/auth/me`** every 1–2 seconds for a few attempts if the webhook is slightly delayed.
+4. Do not unlock premium **only** from client-side success without the server returning **`has_paid`**.
+
+**`GET /api/auth/me` response (relevant fields)**
+
+```json
+{
+  "success": true,
+  "user": { ... },
+  "profile": { ... },
+  "has_paid": true,
+  "has_premium": true,
+  "one_time_purchase_at": "2026-04-08T07:05:06.000Z"
+}
+```
+
+`has_paid` / `has_premium` are derived from **`payment_history`**: latest **`status: succeeded`** row with **`stripe_invoice_id: null`** (one-time PaymentSheet charges). Subscription invoice payments use a non-null invoice id and are not used for this flag.
 
 ---
 
@@ -283,6 +299,41 @@ A **200** from `create-payment-sheet` means “ready for PaymentSheet,” **not*
 
 - 200 + four secrets = OK for **SDK** next step, not “paid” in Dashboard until PaymentSheet completes.
 - **Incomplete** in Stripe after API-only call is **expected**.
+
+---
+
+## Supabase Edge webhook — deploy, fix, and verify
+
+The `stripe-webhook` function must **not** import the Stripe Node SDK or `@supabase/supabase-js` on Edge: they pull **Node polyfills** (`deno.land/std/node` → `Deno.core.runMicrotasks`), which **crash** the worker after the handler runs.
+
+**This repo’s function uses:**
+
+- Native **`Deno.serve`**.
+- **`fetch` only**: Stripe REST (`https://api.stripe.com/v1/...`) and Supabase **PostgREST** (`/rest/v1/...`) with the **service role** key — no npm/esm Stripe or Supabase client libraries.
+
+**Deploy**
+
+```bash
+cd backend   # or repo root where supabase/ lives
+supabase functions deploy stripe-webhook --project-ref <YOUR_PROJECT_REF>
+```
+
+Ensure function secrets include: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (Dashboard → Edge Functions → stripe-webhook → Secrets).
+
+**Verify**
+
+1. Stripe Dashboard → Developers → Webhooks → your endpoint → confirm deliveries return **HTTP 200** (not 500/400).
+2. Supabase → Edge Functions → `stripe-webhook` → Logs: you should see `Received event: payment_intent.succeeded` and `One-time payment recorded...` **without** an `UncaughtException` / `runMicrotasks` error after it.
+3. Table Editor → **`payment_history`**: new row for the user after a successful in-app PaymentSheet payment.
+4. **`GET /api/auth/me`**: **`has_paid`** becomes **`true`** after the row exists (may take 1–5 s after payment).
+
+**Local webhook test (optional)**
+
+```bash
+stripe listen --forward-to https://<PROJECT_REF>.supabase.co/functions/v1/stripe-webhook
+```
+
+Use the signing secret from `stripe listen` in the function’s `STRIPE_WEBHOOK_SECRET` for that test, or trigger test events from the Stripe Dashboard against the deployed URL.
 
 ---
 

@@ -33,10 +33,10 @@ export declare function getUserHabits(userId: string): Promise<({
     user_id: string;
     created_at: Date;
     id: string;
+    status: string;
     template_id: string | null;
     goal_text: string;
     started_at: Date | null;
-    status: string;
 })[]>;
 /**
  * Get a single habit by ID
@@ -69,10 +69,10 @@ export declare function getHabitById(userId: string, habitId: string): Promise<(
     user_id: string;
     created_at: Date;
     id: string;
+    status: string;
     template_id: string | null;
     goal_text: string;
     started_at: Date | null;
-    status: string;
 }) | null>;
 /**
  * Create a new habit
@@ -89,10 +89,10 @@ export declare function createHabit(userId: string, data: CreateHabitData): Prom
     user_id: string;
     created_at: Date;
     id: string;
+    status: string;
     template_id: string | null;
     goal_text: string;
     started_at: Date | null;
-    status: string;
 }>;
 /**
  * Update a habit
@@ -109,10 +109,10 @@ export declare function updateHabit(userId: string, habitId: string, data: Updat
     user_id: string;
     created_at: Date;
     id: string;
+    status: string;
     template_id: string | null;
     goal_text: string;
     started_at: Date | null;
-    status: string;
 }) | null>;
 /**
  * Delete a habit

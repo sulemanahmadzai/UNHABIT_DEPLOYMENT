@@ -3,14 +3,162 @@ import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as NotificationsService from "../services/notifications.service.js";
 import * as NotificationsFeedService from "../services/notifications-feed.service.js";
+import * as CategoriesService from "../services/notification-categories.service.js";
+import * as GovernanceService from "../services/notification-governance.service.js";
 import { isValidUUID } from "../utils/validation.js";
 import { removeUndefined } from "../utils/object.js";
 import { sendPushNotifications } from "../services/push-notifications.service.js";
 import * as SettingsService from "../services/settings.service.js";
 const r = Router();
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATION CATEGORIES (Android channels + in-app toggles)
+// ═══════════════════════════════════════════════════════════════════
+/**
+ * GET /api/notifications/categories
+ * Get all notification categories with user's toggle states.
+ * React Native client uses this to create Android notification channels on startup.
+ */
+r.get("/categories", requireAuth, async (req, res, next) => {
+    try {
+        const prefs = await CategoriesService.getUserCategoryPrefs(req.user.id);
+        const androidChannels = CategoriesService.getAndroidChannelConfig();
+        res.json({ success: true, data: { categories: prefs, android_channels: androidChannels } });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/notifications/categories/:category
+ * Toggle a specific notification category on/off.
+ */
+r.put("/categories/:category", requireAuth, async (req, res, next) => {
+    try {
+        const category = req.params.category;
+        const schema = z.object({ enabled: z.boolean() });
+        const { enabled } = schema.parse(req.body);
+        const result = await CategoriesService.updateCategoryPref(req.user.id, category, enabled);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        if (error.message?.includes("cannot be disabled") || error.message?.includes("Unknown")) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        next(error);
+    }
+});
+/**
+ * PUT /api/notifications/categories
+ * Bulk update notification category preferences.
+ */
+r.put("/categories", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            categories: z.array(z.object({
+                category: z.string(),
+                enabled: z.boolean(),
+            })),
+        });
+        const { categories } = schema.parse(req.body);
+        await CategoriesService.bulkUpdateCategoryPrefs(req.user.id, categories);
+        const updated = await CategoriesService.getUserCategoryPrefs(req.user.id);
+        res.json({ success: true, data: updated });
+    }
+    catch (error) {
+        if (error.message?.includes("cannot be disabled") || error.message?.includes("Unknown")) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        next(error);
+    }
+});
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATION SETTINGS (intensity, lockscreen, promotional opt-in)
+// ═══════════════════════════════════════════════════════════════════
+/**
+ * GET /api/notifications/settings
+ * Get enhanced notification settings (intensity, lockscreen privacy, etc.)
+ */
+r.get("/settings", requireAuth, async (req, res, next) => {
+    try {
+        const settings = await GovernanceService.getNotificationSettings(req.user.id);
+        res.json({ success: true, data: settings });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/notifications/settings
+ * Update notification settings.
+ */
+r.put("/settings", requireAuth, async (req, res, next) => {
+    try {
+        const schema = z.object({
+            intensity: z.enum(["light", "standard", "high_support"]).optional(),
+            show_habit_details_lockscreen: z.boolean().optional(),
+            promotional_opt_in: z.boolean().optional(),
+            weekend_support: z.boolean().optional(),
+            high_risk_reminders: z.boolean().optional(),
+            morning_checkin_minute: z.number().int().min(0).max(1439).optional(),
+            evening_lastcall_minute: z.number().int().min(0).max(1439).optional(),
+        });
+        const data = schema.parse(req.body);
+        const cleaned = {};
+        if (data.intensity !== undefined)
+            cleaned.intensity = data.intensity;
+        if (data.show_habit_details_lockscreen !== undefined)
+            cleaned.show_habit_details_lockscreen = data.show_habit_details_lockscreen;
+        if (data.promotional_opt_in !== undefined)
+            cleaned.promotional_opt_in = data.promotional_opt_in;
+        if (data.weekend_support !== undefined)
+            cleaned.weekend_support = data.weekend_support;
+        if (data.high_risk_reminders !== undefined)
+            cleaned.high_risk_reminders = data.high_risk_reminders;
+        if (data.morning_checkin_minute !== undefined)
+            cleaned.morning_checkin_minute = data.morning_checkin_minute;
+        if (data.evening_lastcall_minute !== undefined)
+            cleaned.evening_lastcall_minute = data.evening_lastcall_minute;
+        const settings = await GovernanceService.updateNotificationSettings(req.user.id, cleaned);
+        res.json({ success: true, data: settings });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/notifications/governance
+ * Get current governance status (sent today count, intensity cap, etc.)
+ */
+r.get("/governance", requireAuth, async (req, res, next) => {
+    try {
+        const [settings, sentToday] = await Promise.all([
+            GovernanceService.getNotificationSettings(req.user.id),
+            GovernanceService.getSentTodayCount(req.user.id),
+        ]);
+        const intensityCaps = {
+            light: 1,
+            standard: 2,
+            high_support: 3,
+        };
+        res.json({
+            success: true,
+            data: {
+                intensity: settings.intensity,
+                daily_cap: intensityCaps[settings.intensity] ?? 2,
+                sent_today: sentToday,
+                remaining_today: Math.max(0, (intensityCaps[settings.intensity] ?? 2) - sentToday),
+            },
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// ═══════════════════════════════════════════════════════════════════
+// EXISTING ENDPOINTS (preserved from original)
+// ═══════════════════════════════════════════════════════════════════
 /**
  * GET /api/notifications/preferences
- * Get notification preferences
  */
 r.get("/preferences", requireAuth, async (req, res, next) => {
     try {
@@ -23,7 +171,6 @@ r.get("/preferences", requireAuth, async (req, res, next) => {
 });
 /**
  * PUT /api/notifications/preferences
- * Update preferences
  */
 r.put("/preferences", requireAuth, async (req, res, next) => {
     try {
@@ -46,7 +193,6 @@ r.put("/preferences", requireAuth, async (req, res, next) => {
 });
 /**
  * GET /api/notifications/scheduled
- * Get scheduled nudges
  */
 r.get("/scheduled", requireAuth, async (req, res, next) => {
     try {
@@ -60,14 +206,13 @@ r.get("/scheduled", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/prime-time
- * Set prime time windows
  */
 r.post("/prime-time", requireAuth, async (req, res, next) => {
     try {
         const schema = z.object({
             windows: z.array(z.object({
-                dow: z.number().int().min(0).max(6), // 0 = Sunday
-                start_minute: z.number().int().min(0).max(1439), // 0-1439 minutes
+                dow: z.number().int().min(0).max(6),
+                start_minute: z.number().int().min(0).max(1439),
                 end_minute: z.number().int().min(0).max(1439),
             })),
         });
@@ -81,7 +226,6 @@ r.post("/prime-time", requireAuth, async (req, res, next) => {
 });
 /**
  * GET /api/notifications/prime-time
- * Get prime time windows
  */
 r.get("/prime-time", requireAuth, async (req, res, next) => {
     try {
@@ -94,7 +238,6 @@ r.get("/prime-time", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/quiet-hours
- * Set quiet hours
  */
 r.post("/quiet-hours", requireAuth, async (req, res, next) => {
     try {
@@ -112,7 +255,6 @@ r.post("/quiet-hours", requireAuth, async (req, res, next) => {
 });
 /**
  * GET /api/notifications/quiet-hours
- * Get quiet hours
  */
 r.get("/quiet-hours", requireAuth, async (req, res, next) => {
     try {
@@ -125,7 +267,6 @@ r.get("/quiet-hours", requireAuth, async (req, res, next) => {
 });
 /**
  * GET /api/notifications/history
- * Get notification delivery history
  */
 r.get("/history", requireAuth, async (req, res, next) => {
     try {
@@ -140,7 +281,6 @@ r.get("/history", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/reminders
- * Add a task reminder
  */
 r.post("/reminders", requireAuth, async (req, res, next) => {
     try {
@@ -164,7 +304,6 @@ r.post("/reminders", requireAuth, async (req, res, next) => {
 });
 /**
  * GET /api/notifications/reminders
- * Get user's reminders
  */
 r.get("/reminders", requireAuth, async (req, res, next) => {
     try {
@@ -177,7 +316,6 @@ r.get("/reminders", requireAuth, async (req, res, next) => {
 });
 /**
  * DELETE /api/notifications/reminders/:id
- * Delete a task reminder
  */
 r.delete("/reminders/:id", requireAuth, async (req, res, next) => {
     try {
@@ -219,8 +357,6 @@ r.get("/", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/mark-all-read
- * Mark all notifications as read
- * NOTE: This must come before /:id/read to avoid route conflicts
  */
 r.post("/mark-all-read", requireAuth, async (req, res, next) => {
     try {
@@ -233,7 +369,6 @@ r.post("/mark-all-read", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/:id/read
- * Mark notification as read
  */
 r.post("/:id/read", requireAuth, async (req, res, next) => {
     try {
@@ -256,7 +391,6 @@ r.post("/:id/read", requireAuth, async (req, res, next) => {
 });
 /**
  * DELETE /api/notifications/:id
- * Delete a notification
  */
 r.delete("/:id", requireAuth, async (req, res, next) => {
     try {
@@ -279,7 +413,6 @@ r.delete("/:id", requireAuth, async (req, res, next) => {
 });
 /**
  * POST /api/notifications/test-push
- * Developer reference: test sending a push notification to your own devices
  */
 r.post("/test-push", requireAuth, async (req, res, next) => {
     try {
