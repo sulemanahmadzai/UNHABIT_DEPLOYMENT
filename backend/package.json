@@ -19,7 +19,8 @@
     "test:redis": "tsx test-redis.ts",
     "test:ai-cache": "tsx test-ai-caching.ts",
     "test:ai-plan": "tsx test-ai-plan-structure.ts",
-    "test:stripe": "tsx test-stripe-integration.ts"
+    "test:stripe": "tsx test-stripe-integration.ts",
+    "test:push": "tsx tests/test-push-notifications.ts"
   },
   "keywords": [],
   "author": "",

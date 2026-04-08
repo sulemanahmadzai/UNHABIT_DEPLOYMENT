@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "../middlewares/auth.js";
 import * as BuddiesService from "../services/buddies.service.js";
 import { isValidUUID } from "../utils/validation.js";
+import * as Scenarios from "../services/notification-scenarios.service.js";
+import { db } from "../lib/services.js";
 
 const r = Router();
 
@@ -73,6 +75,21 @@ r.post("/accept/:inviteCode", requireAuth, async (req, res, next) => {
         error: "Invite not found or expired",
       });
     }
+
+    // Notify the inviter that their invite was accepted
+    (async () => {
+      try {
+        const inviterId = result.user_a === req.user!.id ? result.user_b : result.user_a;
+        const acceptorProfile = await db.profiles.findUnique({
+          where: { user_id: req.user!.id },
+          select: { full_name: true },
+        });
+        await Scenarios.notifyBuddyInviteAccepted(
+          inviterId,
+          acceptorProfile?.full_name ?? undefined
+        );
+      } catch {}
+    })();
 
     res.json({ success: true, data: result });
   } catch (error) {

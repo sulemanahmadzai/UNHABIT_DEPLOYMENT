@@ -6,6 +6,20 @@ import * as BadgeAwardingService from "../services/badge-awarding.service.js";
 import * as RewardsService from "../services/rewards.service.js";
 import { getSettingValue } from "../services/admin.service.js";
 import { notifyDailyCompletion } from "../services/notification-events.service.js";
+import * as Scenarios from "../services/notification-scenarios.service.js";
+import { db } from "../lib/services.js";
+
+function calculateLevel(totalXP: number): number {
+  let level = 1;
+  let xpRequired = 0;
+  let nextLevelXP = 100;
+  while (totalXP >= xpRequired + nextLevelXP) {
+    xpRequired += nextLevelXP;
+    level++;
+    nextLevelXP = level * 100;
+  }
+  return level;
+}
 
 const r = Router();
 
@@ -25,12 +39,42 @@ r.post("/tasks/:taskId/complete", requireAuth, async (req, res, next) => {
       return res.status(404).json({ success: false, error: "Task not found" });
     }
 
+    // Capture level before awarding XP (for level-up detection)
+    const balanceBefore = await db.point_balances.findUnique({ where: { user_id: req.user!.id } });
+    const levelBefore = calculateLevel(Number(balanceBefore?.total_points ?? 0));
+
     // Award XP for task completion
     const xpPerTask = await getSettingValue("xp_per_task_completion", 10);
     await RewardsService.awardPoints(req.user!.id, xpPerTask);
 
     // Check and award badges + update streak
     const badgeResult = await BadgeAwardingService.onTaskCompleted(req.user!.id, taskId);
+
+    // Fire-and-forget: streak, XP, level-up, share notifications
+    (async () => {
+      try {
+        const streak = await db.streaks.findFirst({
+          where: { user_id: req.user!.id, kind: "task_completion" },
+        });
+        const len = streak?.current_length ?? 0;
+        if ([7, 14, 21].includes(len)) {
+          await Scenarios.notifyStreakMilestone(req.user!.id, len);
+          await Scenarios.notifySharePrompt(req.user!.id);
+        } else if (len >= 2 && len < 7) {
+          await Scenarios.notifyMicroStreak(req.user!.id, len);
+        }
+
+        // XP earned notification (only for meaningful amounts)
+        await Scenarios.notifyXpEarned(req.user!.id, xpPerTask);
+
+        // Level-up detection
+        const balanceAfter = await db.point_balances.findUnique({ where: { user_id: req.user!.id } });
+        const levelAfter = calculateLevel(Number(balanceAfter?.total_points ?? 0));
+        if (levelAfter > levelBefore) {
+          await Scenarios.notifyLevelUp(req.user!.id, levelAfter);
+        }
+      } catch {}
+    })();
 
     res.json({
       success: true,
@@ -177,6 +221,10 @@ r.post("/slips", requireAuth, async (req, res, next) => {
       context: (data.context as Record<string, unknown>) ?? null,
     });
 
+    // Fire-and-forget: relapse logged + coach skill suggestion
+    Scenarios.notifyRelapsLogged(req.user!.id).catch(() => {});
+    Scenarios.notifyCoachSkillSuggestion(req.user!.id).catch(() => {});
+
     res.status(201).json({ success: true, data: slip });
   } catch (error) {
     next(error);
@@ -219,8 +267,62 @@ r.get("/today", requireAuth, async (req, res, next) => {
 r.post("/complete-day", requireAuth, async (req, res, next) => {
   try {
     const result = await ProgressService.completeDayTasks(req.user!.id);
-    // Best-effort push
-    notifyDailyCompletion(req.user!.id).catch(() => {});
+
+    // Best-effort push: completion reinforcement + streak check + post-21 check
+    (async () => {
+      try {
+        const streak = await db.streaks.findFirst({
+          where: { user_id: req.user!.id, kind: "task_completion" },
+        });
+        const len = streak?.current_length ?? 0;
+        await Scenarios.notifyCompletionReinforcement(req.user!.id, len);
+        await Scenarios.notifyHabitHealthChange(req.user!.id);
+
+        if ([7, 14, 21].includes(len)) {
+          await Scenarios.notifyStreakMilestone(req.user!.id, len);
+        }
+
+        // Check if this completes the 21-day plan
+        const journey = await db.journeys.findFirst({
+          where: { user_id: req.user!.id, status: "active" },
+        });
+        if (journey && journey.planned_days === 21 && journey.start_date) {
+          const startDate = new Date(journey.start_date);
+          startDate.setHours(0, 0, 0, 0);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const dayNumber = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          if (dayNumber >= 21) {
+            await Scenarios.notifyPost21Maintenance(req.user!.id);
+          }
+        }
+
+        // Notify buddies that user completed today + buddy streak milestones
+        const buddyLinks = await db.buddy_links.findMany({
+          where: {
+            OR: [{ user_a: req.user!.id }, { user_b: req.user!.id }],
+            status: "active",
+          },
+        });
+        const userProfile = await db.profiles.findUnique({
+          where: { user_id: req.user!.id },
+          select: { full_name: true },
+        });
+        for (const link of buddyLinks) {
+          const buddyId = link.user_a === req.user!.id ? link.user_b : link.user_a;
+          await Scenarios.notifyBuddyCompletedToday(buddyId, userProfile?.full_name ?? undefined);
+
+          if ([7, 14, 21].includes(len)) {
+            await Scenarios.notifyBuddyStreakMilestone(
+              buddyId,
+              userProfile?.full_name ?? "Your buddy",
+              len
+            );
+          }
+        }
+      } catch {}
+    })();
+
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

@@ -439,6 +439,9 @@ model users {
   stripe_customers                      stripe_customers?
   subscriptions                         subscriptions[]
   payment_history                       payment_history[]
+  notification_category_prefs           notification_category_prefs[]
+  notification_settings                 notification_settings?
+  notification_daily_log                notification_daily_log[]
 
   @@index([instance_id])
   @@index([is_anonymous])
@@ -1554,6 +1557,48 @@ model buddy_nudges {
   users         users       @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([buddy_link_id], map: "idx_buddy_nudges_link")
+  @@schema("public")
+}
+
+/// Per-user notification category preferences (maps to Android channels + in-app toggles)
+model notification_category_prefs {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id  String  @db.Uuid
+  category String
+  enabled  Boolean @default(true)
+  users    users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, category])
+  @@index([user_id], map: "idx_notif_cat_prefs_user")
+  @@schema("public")
+}
+
+/// Enhanced notification settings (intensity, lockscreen privacy, promotional opt-in)
+model notification_settings {
+  user_id                       String  @id @db.Uuid
+  intensity                     String  @default("standard")
+  show_habit_details_lockscreen Boolean @default(false)
+  promotional_opt_in            Boolean @default(false)
+  weekend_support               Boolean @default(false)
+  high_risk_reminders           Boolean @default(false)
+  morning_checkin_minute        Int     @default(480)
+  evening_lastcall_minute       Int     @default(1260)
+  updated_at                    DateTime @default(now()) @db.Timestamptz(6)
+  users                         users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+/// Daily notification log for frequency cap enforcement
+model notification_daily_log {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id   String   @db.Uuid
+  category  String
+  kind      String
+  sent_at   DateTime @default(now()) @db.Timestamptz(6)
+  users     users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, sent_at], map: "idx_notif_daily_log_user_time")
   @@schema("public")
 }
 

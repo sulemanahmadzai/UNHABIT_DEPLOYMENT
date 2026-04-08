@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import * as StreaksService from "../services/streaks.service.js";
+import * as Scenarios from "../services/notification-scenarios.service.js";
 
 const r = Router();
 
@@ -27,6 +28,7 @@ r.post("/freeze", requireAuth, async (req, res, next) => {
     if (!result.success) {
       return res.status(400).json({ success: false, error: result.error });
     }
+    Scenarios.notifyStreakFreezeUsed(req.user!.id).catch(() => {});
     res.json({ success: true, data: result });
   } catch (error) {
     next(error);

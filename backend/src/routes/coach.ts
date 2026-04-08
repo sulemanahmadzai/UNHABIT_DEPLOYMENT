@@ -4,8 +4,8 @@ import { requireAuth } from "../middlewares/auth.js";
 import * as CoachService from "../services/coach.service.js";
 import * as AIClient from "../services/ai-client.service.js";
 import { isValidUUID } from "../utils/validation.js";
-import { sendPushToUser } from "../services/push-notifications.service.js";
 import { db } from "../lib/services.js";
+import * as Scenarios from "../services/notification-scenarios.service.js";
 
 const r = Router();
 
@@ -178,11 +178,8 @@ r.post("/sessions/:id/messages", requireAuth, async (req, res, next) => {
       { chat_history: aiResult.data.chat_history }
     );
 
-    // 🔔 Fire-and-forget push notification — notify user of new coach reply
-    sendPushToUser(req.user!.id, "AI Coach", "You have a new message!", {
-      type: "chat",
-      sessionId,
-    }).catch((err: unknown) => console.error("Push notification error (coach):", err));
+    // Fire-and-forget: privacy-safe coach reply notification via scenario system
+    Scenarios.notifyCoachReply(req.user!.id, sessionId).catch(() => {});
 
     res.json({
       success: true,

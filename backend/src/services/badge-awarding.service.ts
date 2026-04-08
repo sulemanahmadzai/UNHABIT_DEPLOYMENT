@@ -1,6 +1,7 @@
 import { prisma } from "../lib/services.js";
 import * as RewardsService from "./rewards.service.js";
 import { sendPushNotifications } from "./push-notifications.service.js";
+import * as Scenarios from "./notification-scenarios.service.js";
 import redis from "../db/redis.js";
 
 interface BadgeAwardResult {
@@ -60,27 +61,8 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeAwardRes
         badge_slug: rule.badge_definitions.slug,
       });
 
-      // Best-effort push notification for badge earned
-      try {
-        const tokens = await prisma.devices
-          .findMany({
-            where: { user_id: userId, push_token: { not: null } },
-            orderBy: { created_at: "desc" },
-          })
-          .then((rows) => Array.from(new Set(rows.map((r) => r.push_token).filter((t): t is string => !!t))));
-
-        if (tokens.length) {
-          await sendPushNotifications(tokens, "Badge earned!", `You earned: ${awarded.badge_definitions.name}`, {
-            screen: "Notifications",
-            params: JSON.stringify({}),
-            kind: "badge_earned",
-            badge_id: awarded.badge_id,
-            badge_slug: awarded.badge_definitions.slug,
-          });
-        }
-      } catch {
-        // ignore
-      }
+      // Privacy-safe badge notification via scenario system
+      Scenarios.notifyBadgeUnlocked(userId, awarded.badge_definitions.name).catch(() => {});
     }
   }
 
