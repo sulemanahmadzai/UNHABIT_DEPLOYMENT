@@ -191,6 +191,26 @@ export async function getProfile(userId) {
     return profile;
 }
 /**
+ * One-time PaymentSheet purchases are stored in payment_history with status succeeded
+ * and stripe_invoice_id null (subscription invoice payments set invoice id).
+ */
+export async function getOneTimePurchaseEntitlement(userId) {
+    const row = await db.payment_history.findFirst({
+        where: {
+            user_id: userId,
+            status: "succeeded",
+            stripe_invoice_id: null,
+        },
+        orderBy: { created_at: "desc" },
+    });
+    const unlocked = !!row;
+    return {
+        has_paid: unlocked,
+        has_premium: unlocked,
+        one_time_purchase_at: row?.created_at?.toISOString() ?? null,
+    };
+}
+/**
  * Mark user as onboarded
  */
 export async function markOnboarded(userId) {

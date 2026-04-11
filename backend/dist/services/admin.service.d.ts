@@ -201,8 +201,8 @@ export declare function deleteBadgeRule(id: string): Promise<{
 }>;
 export declare function getPointRules(): Promise<{
     id: string;
-    code: string;
     amount: number;
+    code: string;
     event_type: string;
     caps: Prisma.JsonValue | null;
     conditions: Prisma.JsonValue | null;
@@ -215,8 +215,8 @@ export declare function createPointRule(data: {
     conditions?: Record<string, unknown> | undefined;
 }): Promise<{
     id: string;
-    code: string;
     amount: number;
+    code: string;
     event_type: string;
     caps: Prisma.JsonValue | null;
     conditions: Prisma.JsonValue | null;
@@ -229,16 +229,16 @@ export declare function updatePointRule(id: string, data: {
     conditions?: Record<string, unknown> | undefined;
 }): Promise<{
     id: string;
-    code: string;
     amount: number;
+    code: string;
     event_type: string;
     caps: Prisma.JsonValue | null;
     conditions: Prisma.JsonValue | null;
 }>;
 export declare function deletePointRule(id: string): Promise<{
     id: string;
-    code: string;
     amount: number;
+    code: string;
     event_type: string;
     caps: Prisma.JsonValue | null;
     conditions: Prisma.JsonValue | null;

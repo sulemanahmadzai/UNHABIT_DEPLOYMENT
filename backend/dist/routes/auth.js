@@ -175,10 +175,9 @@ r.post("/reset-password", requireAuth, async (req, res, next) => {
 r.get("/me", requireAuth, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        // Get user from Supabase
         const user = await Auth.getUserById(userId);
-        // Get profile from Prisma
         const profile = await Auth.getProfile(userId);
+        const entitlement = await Auth.getOneTimePurchaseEntitlement(userId);
         res.json({
             success: true,
             user: {
@@ -190,6 +189,9 @@ r.get("/me", requireAuth, async (req, res, next) => {
                 app_metadata: user.app_metadata,
             },
             profile,
+            has_paid: entitlement.has_paid,
+            has_premium: entitlement.has_premium,
+            one_time_purchase_at: entitlement.one_time_purchase_at,
         });
     }
     catch (error) {

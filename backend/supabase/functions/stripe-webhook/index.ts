@@ -1,306 +1,421 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import Stripe from 'https://esm.sh/stripe@20.4.1?target=deno';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+/**
+ * Stripe webhook — Supabase Edge (Deno).
+ *
+ * No Stripe SDK and no @supabase/supabase-js: both pull Node-compat code
+ * (deno.land/std/node → Deno.core.runMicrotasks) on Edge and crash after the handler.
+ * This file uses fetch-only calls to Stripe REST and PostgREST.
+ */
 
-/** Must match backend STRIPE_API_VERSION / Stripe Node client. */
-const STRIPE_API_VERSION = '2026-02-25.clover';
+const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY") || "";
+const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+const supabaseUrl = Deno.env.get("SUPABASE_URL")?.replace(/\/$/, "") || "";
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-const ONE_TIME_PAYMENT_FLOW = 'one_time_payment_sheet';
+const ONE_TIME_PAYMENT_FLOW = "one_time_payment_sheet";
 
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
-  apiVersion: STRIPE_API_VERSION,
-  httpClient: Stripe.createFetchHttpClient(),
-});
+type Json = Record<string, unknown>;
 
-const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET') || '';
+Deno.serve(async (req: Request) => {
+  if (req.method !== "POST") {
+    return json({ error: "Method Not Allowed" }, 405);
+  }
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-serve(async (req) => {
-  const signature = req.headers.get('stripe-signature');
-
+  const signature = req.headers.get("stripe-signature");
   if (!signature) {
-    return new Response(JSON.stringify({ error: 'No signature' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json({ error: "Missing stripe-signature header" }, 400);
   }
 
   try {
     const body = await req.text();
-    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+
+    const isValid = await verifyStripeSignature(body, signature, webhookSecret);
+    if (!isValid) {
+      return json({ error: "Invalid Stripe signature" }, 400);
+    }
+
+    const event = JSON.parse(body) as { type: string; data: { object: Json } };
 
     console.log(`Received event: ${event.type}`);
 
     switch (event.type) {
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdate(event.data.object as Stripe.Subscription);
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+        await handleSubscriptionUpdate(event.data.object);
         break;
 
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+      case "customer.subscription.deleted":
+        await handleSubscriptionDeleted(event.data.object);
         break;
 
-      case 'invoice.payment_succeeded':
-        await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice);
+      case "invoice.payment_succeeded":
+        await handleInvoicePaymentSucceeded(event.data.object);
         break;
 
-      case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+      case "invoice.payment_failed":
+        await handleInvoicePaymentFailed(event.data.object);
         break;
 
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+      case "checkout.session.completed":
+        await handleCheckoutSessionCompleted(event.data.object);
         break;
 
-      case 'payment_intent.succeeded':
-        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
-        break;
-
-      case 'payment_intent.payment_failed':
-        await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
+      case "payment_intent.succeeded":
+        await handlePaymentIntentSucceeded(event.data.object);
         break;
 
       default:
         console.log(`Unhandled event type: ${event.type}`);
+        break;
     }
 
-    return new Response(JSON.stringify({ received: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json({ received: true }, 200);
   } catch (err) {
-    console.error('Webhook error:', err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
+    console.error("Webhook error:", err);
+    return json(
+      { error: err instanceof Error ? err.message : "Unknown webhook error" },
+      400,
     );
   }
 });
 
-async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
-  const userId = subscription.metadata.user_id;
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function verifyStripeSignature(
+  payload: string,
+  signatureHeader: string,
+  secret: string,
+): Promise<boolean> {
+  try {
+    const elements = signatureHeader.split(",");
+    const timestampPart = elements.find((part) => part.startsWith("t="));
+    const signaturePart = elements.find((part) => part.startsWith("v1="));
+
+    if (!timestampPart || !signaturePart) {
+      console.error("Invalid Stripe signature header format");
+      return false;
+    }
+
+    const timestamp = timestampPart.split("=")[1];
+    const stripeSignature = signaturePart.split("=")[1];
+
+    if (!timestamp || !stripeSignature) {
+      return false;
+    }
+
+    const signedPayload = `${timestamp}.${payload}`;
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+
+    const sig = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(signedPayload),
+    );
+
+    const expectedSignature = toHex(sig);
+
+    return secureCompare(expectedSignature, stripeSignature);
+  } catch (error) {
+    console.error("Stripe signature verification failed:", error);
+    return false;
+  }
+}
+
+function toHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function secureCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+async function stripeGetSubscription(subscriptionId: string): Promise<Json> {
+  const res = await fetch(
+    `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { headers: { Authorization: `Bearer ${stripeSecretKey}` } },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Stripe subscription retrieve ${res.status}: ${text}`);
+  }
+  return JSON.parse(text) as Json;
+}
+
+async function restPost(
+  table: string,
+  query: string,
+  body: unknown,
+  prefer: string,
+): Promise<void> {
+  const url = `${supabaseUrl}/rest/v1/${table}${query}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: supabaseServiceKey,
+      Authorization: `Bearer ${supabaseServiceKey}`,
+      "Content-Type": "application/json",
+      Prefer: prefer,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`PostgREST POST ${table} ${res.status}: ${t}`);
+  }
+}
+
+async function restPatch(
+  table: string,
+  query: string,
+  body: Json,
+): Promise<void> {
+  const url = `${supabaseUrl}/rest/v1/${table}${query}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      apikey: supabaseServiceKey,
+      Authorization: `Bearer ${supabaseServiceKey}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`PostgREST PATCH ${table} ${res.status}: ${t}`);
+  }
+}
+
+function metaString(obj: Json | undefined, key: string): string | undefined {
+  const m = obj?.metadata as Record<string, string> | undefined;
+  return m?.[key];
+}
+
+function num(obj: Json, key: string): number | undefined {
+  const v = obj[key];
+  return typeof v === "number" ? v : undefined;
+}
+
+async function handleSubscriptionUpdate(subscription: Json) {
+  const userId = metaString(subscription, "user_id");
 
   if (!userId) {
-    console.error('No user_id in subscription metadata');
+    console.error("No user_id in subscription metadata");
     return;
   }
 
+  const items = subscription.items as { data?: Array<{ price?: { id?: string }; quantity?: number }> } | undefined;
+  const firstItem = items?.data?.[0];
+
   const subscriptionData = {
     user_id: userId,
-    stripe_subscription_id: subscription.id,
+    stripe_subscription_id: subscription.id as string,
     stripe_customer_id: subscription.customer as string,
-    status: subscription.status,
-    price_id: subscription.items.data[0]?.price.id || '',
-    quantity: subscription.items.data[0]?.quantity || 1,
-    cancel_at_period_end: subscription.cancel_at_period_end,
-    current_period_start: subscription.current_period_start
-      ? new Date(subscription.current_period_start * 1000).toISOString()
+    status: subscription.status as string,
+    price_id: firstItem?.price?.id || "",
+    quantity: firstItem?.quantity || 1,
+    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+    current_period_start: num(subscription, "current_period_start")
+      ? new Date(num(subscription, "current_period_start")! * 1000).toISOString()
       : null,
-    current_period_end: subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000).toISOString()
+    current_period_end: num(subscription, "current_period_end")
+      ? new Date(num(subscription, "current_period_end")! * 1000).toISOString()
       : null,
-    ended_at: subscription.ended_at
-      ? new Date(subscription.ended_at * 1000).toISOString()
+    ended_at: num(subscription, "ended_at")
+      ? new Date(num(subscription, "ended_at")! * 1000).toISOString()
       : null,
-    canceled_at: subscription.canceled_at
-      ? new Date(subscription.canceled_at * 1000).toISOString()
+    canceled_at: num(subscription, "canceled_at")
+      ? new Date(num(subscription, "canceled_at")! * 1000).toISOString()
       : null,
-    trial_start: subscription.trial_start
-      ? new Date(subscription.trial_start * 1000).toISOString()
+    trial_start: num(subscription, "trial_start")
+      ? new Date(num(subscription, "trial_start")! * 1000).toISOString()
       : null,
-    trial_end: subscription.trial_end
-      ? new Date(subscription.trial_end * 1000).toISOString()
+    trial_end: num(subscription, "trial_end")
+      ? new Date(num(subscription, "trial_end")! * 1000).toISOString()
       : null,
     updated_at: new Date().toISOString(),
   };
 
-  // Upsert subscription
-  const { error } = await supabase
-    .from('subscriptions')
-    .upsert(subscriptionData, {
-      onConflict: 'stripe_subscription_id',
-    });
-
-  if (error) {
-    console.error('Error upserting subscription:', error);
-    throw error;
-  }
+  await restPost(
+    "subscriptions",
+    "?on_conflict=stripe_subscription_id",
+    subscriptionData,
+    "resolution=merge-duplicates",
+  );
 
   console.log(`Subscription ${subscription.id} updated for user ${userId}`);
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const { error } = await supabase
-    .from('subscriptions')
-    .update({
-      status: 'canceled',
+async function handleSubscriptionDeleted(subscription: Json) {
+  await restPatch(
+    "subscriptions",
+    `?stripe_subscription_id=eq.${encodeURIComponent(subscription.id as string)}`,
+    {
+      status: "canceled",
       ended_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
-    .eq('stripe_subscription_id', subscription.id);
-
-  if (error) {
-    console.error('Error deleting subscription:', error);
-    throw error;
-  }
+    },
+  );
 
   console.log(`Subscription ${subscription.id} deleted`);
 }
 
-async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
-  if (!invoice.subscription || !invoice.payment_intent) {
+async function handleInvoicePaymentSucceeded(invoice: Json) {
+  const subId = invoice.subscription as string | undefined;
+  const piId = invoice.payment_intent as string | undefined;
+
+  if (!subId || !piId) {
+    console.log(
+      "invoice.payment_succeeded skipped: missing subscription or payment_intent",
+    );
     return;
   }
 
-  const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
-  const userId = subscription.metadata.user_id;
+  const subscription = await stripeGetSubscription(subId);
+  const userId = metaString(subscription, "user_id");
 
   if (!userId) {
-    console.error('No user_id in subscription metadata');
+    console.error("No user_id in subscription metadata");
     return;
   }
 
-  // Record payment
-  const { error } = await supabase.from('payment_history').insert({
-    user_id: userId,
-    stripe_payment_intent_id: invoice.payment_intent as string,
-    stripe_invoice_id: invoice.id,
-    amount: invoice.amount_paid,
-    currency: invoice.currency,
-    status: 'succeeded',
-    payment_method_type: 'card',
-    created_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    console.error('Error recording payment:', error);
-  }
+  await restPost(
+    "payment_history",
+    "?on_conflict=stripe_payment_intent_id",
+    {
+      user_id: userId,
+      stripe_payment_intent_id: piId,
+      stripe_invoice_id: invoice.id,
+      amount: invoice.amount_paid,
+      currency: invoice.currency,
+      status: "succeeded",
+      payment_method_type: "card",
+      created_at: new Date().toISOString(),
+    },
+    "resolution=merge-duplicates",
+  );
 
   console.log(`Payment succeeded for invoice ${invoice.id}`);
 }
 
-async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-  if (!invoice.subscription || !invoice.payment_intent) {
+async function handleInvoicePaymentFailed(invoice: Json) {
+  const subId = invoice.subscription as string | undefined;
+  const piId = invoice.payment_intent as string | undefined;
+
+  if (!subId || !piId) {
+    console.log(
+      "invoice.payment_failed skipped: missing subscription or payment_intent",
+    );
     return;
   }
 
-  const subscription = await stripe.subscriptions.retrieve(invoice.subscription as string);
-  const userId = subscription.metadata.user_id;
+  const subscription = await stripeGetSubscription(subId);
+  const userId = metaString(subscription, "user_id");
 
   if (!userId) {
-    console.error('No user_id in subscription metadata');
+    console.error("No user_id in subscription metadata");
     return;
   }
 
-  // Record failed payment
-  const { error } = await supabase.from('payment_history').insert({
-    user_id: userId,
-    stripe_payment_intent_id: invoice.payment_intent as string,
-    stripe_invoice_id: invoice.id,
-    amount: invoice.amount_due,
-    currency: invoice.currency,
-    status: 'failed',
-    payment_method_type: 'card',
-    created_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    console.error('Error recording failed payment:', error);
-  }
+  await restPost(
+    "payment_history",
+    "?on_conflict=stripe_payment_intent_id",
+    {
+      user_id: userId,
+      stripe_payment_intent_id: piId,
+      stripe_invoice_id: invoice.id,
+      amount: invoice.amount_due,
+      currency: invoice.currency,
+      status: "failed",
+      payment_method_type: "card",
+      created_at: new Date().toISOString(),
+    },
+    "resolution=merge-duplicates",
+  );
 
   console.log(`Payment failed for invoice ${invoice.id}`);
 }
 
-async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
-  const userId = session.metadata?.user_id;
+async function handleCheckoutSessionCompleted(session: Json) {
+  const userId = metaString(session, "user_id");
 
   if (!userId) {
-    console.error('No user_id in session metadata');
+    console.error("No user_id in session metadata");
     return;
   }
 
-  // If this is a subscription checkout, the subscription webhook will handle it
-  if (session.mode === 'subscription' && session.subscription) {
+  if (session.mode === "subscription" && session.subscription) {
     console.log(`Checkout completed for subscription ${session.subscription}`);
+    return;
   }
+
+  if (session.mode === "payment") {
+    console.log(
+      `Checkout completed for one-time payment. Session: ${session.id}`,
+    );
+    return;
+  }
+
+  console.log(`Checkout session completed with mode: ${session.mode}`);
 }
 
-async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
-  if (pi.metadata?.flow !== ONE_TIME_PAYMENT_FLOW) {
-    console.log(`Skipping payment_intent.succeeded for ${pi.id} (not PaymentSheet one-time flow)`);
+async function handlePaymentIntentSucceeded(paymentIntent: Json) {
+  const flow = metaString(paymentIntent, "flow");
+  if (flow !== ONE_TIME_PAYMENT_FLOW) {
+    console.log(
+      `Skipping payment_intent.succeeded for ${paymentIntent.id} (flow=${flow ?? "none"})`,
+    );
     return;
   }
 
-  const userId = pi.metadata?.user_id;
+  const userId = metaString(paymentIntent, "user_id");
+  const priceId = metaString(paymentIntent, "price_id") ?? null;
+
   if (!userId) {
-    console.error('No user_id in payment intent metadata');
+    console.error("No user_id in payment intent metadata");
     return;
   }
 
-  const amount = pi.amount_received ?? pi.amount;
-  const paymentMethodType = pi.payment_method_types?.[0] ?? 'card';
+  const amountReceived = num(paymentIntent, "amount_received");
+  const amount = num(paymentIntent, "amount");
+  const row = {
+    user_id: userId,
+    stripe_payment_intent_id: paymentIntent.id as string,
+    stripe_invoice_id: null,
+    amount: amountReceived ?? amount ?? 0,
+    currency: paymentIntent.currency as string,
+    status: "succeeded",
+    payment_method_type: "card",
+    created_at: new Date().toISOString(),
+  };
 
-  const { error } = await supabase.from('payment_history').upsert(
-    {
-      user_id: userId,
-      stripe_payment_intent_id: pi.id,
-      stripe_invoice_id: null,
-      amount,
-      currency: pi.currency,
-      status: 'succeeded',
-      payment_method_type: paymentMethodType,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: 'stripe_payment_intent_id' },
+  await restPost(
+    "payment_history",
+    "?on_conflict=stripe_payment_intent_id",
+    row,
+    "resolution=merge-duplicates",
   );
 
-  if (error) {
-    console.error('Error upserting payment_history for PI success:', error);
-    throw error;
-  }
-
-  console.log(`Recorded one-time payment for PI ${pi.id}, user ${userId}`);
-}
-
-async function handlePaymentIntentFailed(pi: Stripe.PaymentIntent) {
-  if (pi.metadata?.flow !== ONE_TIME_PAYMENT_FLOW) {
-    console.log(`Skipping payment_intent.payment_failed for ${pi.id} (not PaymentSheet one-time flow)`);
-    return;
-  }
-
-  const userId = pi.metadata?.user_id;
-  if (!userId) {
-    console.error('No user_id in payment intent metadata');
-    return;
-  }
-
-  const paymentMethodType = pi.payment_method_types?.[0] ?? 'card';
-
-  const { error } = await supabase.from('payment_history').upsert(
-    {
-      user_id: userId,
-      stripe_payment_intent_id: pi.id,
-      stripe_invoice_id: null,
-      amount: pi.amount,
-      currency: pi.currency,
-      status: 'failed',
-      payment_method_type: paymentMethodType,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: 'stripe_payment_intent_id' },
+  console.log(
+    `One-time payment recorded. payment_intent=${paymentIntent.id}, user_id=${userId}, price_id=${priceId}, flow=${ONE_TIME_PAYMENT_FLOW}`,
   );
-
-  if (error) {
-    console.error('Error upserting payment_history for PI failure:', error);
-    throw error;
-  }
-
-  console.log(`Recorded failed one-time payment for PI ${pi.id}, user ${userId}`);
 }
