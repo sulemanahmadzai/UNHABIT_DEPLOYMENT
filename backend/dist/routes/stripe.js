@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middlewares/auth.js';
 import * as StripeService from '../services/stripe.service.js';
 import { prisma } from '../db/prisma.js';
+import * as Scenarios from '../services/notification-scenarios.service.js';
 const r = Router();
 /**
  * POST /api/stripe/create-checkout-session
@@ -61,6 +62,7 @@ r.post('/create-checkout-session', requireAuth, async (req, res, next) => {
             cancelUrl: data.cancelUrl,
             customerEmail: user?.email ?? undefined,
         });
+        Scenarios.notifyTrialStarted(userId).catch(() => { });
         res.json({
             success: true,
             sessionId: session.sessionId,

@@ -53,9 +53,9 @@ export declare function getScheduledNudges(userId: string, limit: number): Promi
 export declare function setPrimeTimeWindows(userId: string, windows: PrimeTimeWindow[]): Promise<{
     user_id: string;
     id: string;
-    dow: number;
     start_minute: number;
     end_minute: number;
+    dow: number;
 }[]>;
 /**
  * Get prime time windows
@@ -63,9 +63,9 @@ export declare function setPrimeTimeWindows(userId: string, windows: PrimeTimeWi
 export declare function getPrimeTimeWindows(userId: string): Promise<{
     user_id: string;
     id: string;
-    dow: number;
     start_minute: number;
     end_minute: number;
+    dow: number;
 }[]>;
 /**
  * Set quiet hours
