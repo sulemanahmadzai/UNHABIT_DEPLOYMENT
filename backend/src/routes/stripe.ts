@@ -47,6 +47,29 @@ r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
   }
 });
 
+r.post('/confirm-one-time-payment', requireAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      paymentIntentId: z.string().min(1),
+    });
+    const data = schema.parse(req.body);
+    const userId = req.user!.id;
+
+    const result = await StripeService.confirmOneTimePaymentIntentForUser({
+      userId,
+      paymentIntentId: data.paymentIntentId,
+    });
+
+    res.json({
+      success: true,
+      confirmed: result.confirmed,
+      status: result.status,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 r.post('/create-checkout-session', requireAuth, async (req, res, next) => {
   try {
     const schema = z.object({

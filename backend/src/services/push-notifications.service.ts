@@ -89,7 +89,8 @@ export async function sendPushToUser(
  * Process receipts (optional, for checking delivery errors like invalid tokens)
  */
 export async function checkPushReceipts(receiptIds: string[]) {
-    const validIds = receiptIds.filter((id) => Expo.isExpoPushToken(id));
+    // Receipt IDs are opaque strings (UUIDs), NOT Expo push tokens.
+    const validIds = receiptIds.filter((id) => typeof id === 'string' && id.length > 0);
     if (validIds.length === 0) return {};
 
     const chunks = expo.chunkPushNotificationReceiptIds(validIds);

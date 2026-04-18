@@ -77,6 +77,10 @@ export interface PaymentSheetOneTimeResult {
   ephemeralKeySecret: string;
   customerId: string;
 }
+export interface ConfirmOneTimePaymentIntentParams {
+  userId: string;
+  paymentIntentId: string;
+}
 
 export interface CreateCheckoutSessionParams {
   userId: string;
@@ -199,6 +203,53 @@ export async function createPaymentSheetParamsForOneTimePrice(
     ephemeralKeySecret: ephemeralKey.secret,
     customerId,
   };
+}
+
+/**
+ * Fallback for delayed/missed webhook delivery:
+ * verify PaymentIntent ownership/status and upsert payment_history.
+ */
+export async function confirmOneTimePaymentIntentForUser(
+  params: ConfirmOneTimePaymentIntentParams,
+): Promise<{ confirmed: boolean; status: string }> {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+  const { userId, paymentIntentId } = params;
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  const metadataUserId = paymentIntent.metadata?.user_id;
+  const flow = paymentIntent.metadata?.flow;
+
+  if (!metadataUserId || metadataUserId !== userId) {
+    throwBadRequest('Payment intent does not belong to this user');
+  }
+  if (flow !== ONE_TIME_PAYMENT_FLOW) {
+    throwBadRequest('Payment intent is not from the one-time payment flow');
+  }
+
+  if (paymentIntent.status !== 'succeeded') {
+    return { confirmed: false, status: paymentIntent.status };
+  }
+
+  await prisma.payment_history.upsert({
+    where: { stripe_payment_intent_id: paymentIntent.id },
+    create: {
+      user_id: userId,
+      stripe_payment_intent_id: paymentIntent.id,
+      stripe_invoice_id: typeof paymentIntent.invoice === 'string' ? paymentIntent.invoice : null,
+      amount: paymentIntent.amount_received || paymentIntent.amount,
+      currency: paymentIntent.currency,
+      status: 'succeeded',
+      payment_method_type: 'card',
+      created_at: new Date(),
+    },
+    update: {
+      status: 'succeeded',
+      amount: paymentIntent.amount_received || paymentIntent.amount,
+      currency: paymentIntent.currency,
+    },
+  });
+
+  return { confirmed: true, status: paymentIntent.status };
 }
 
 /**

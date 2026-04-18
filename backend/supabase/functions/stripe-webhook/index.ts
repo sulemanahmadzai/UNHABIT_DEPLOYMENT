@@ -91,19 +91,21 @@ async function verifyStripeSignature(
   secret: string,
 ): Promise<boolean> {
   try {
-    const elements = signatureHeader.split(",");
+    const elements = signatureHeader.split(",").map((part) => part.trim());
     const timestampPart = elements.find((part) => part.startsWith("t="));
-    const signaturePart = elements.find((part) => part.startsWith("v1="));
+    const v1Signatures = elements
+      .filter((part) => part.startsWith("v1="))
+      .map((part) => part.split("=")[1])
+      .filter((value): value is string => Boolean(value));
 
-    if (!timestampPart || !signaturePart) {
+    if (!timestampPart || v1Signatures.length === 0) {
       console.error("Invalid Stripe signature header format");
       return false;
     }
 
     const timestamp = timestampPart.split("=")[1];
-    const stripeSignature = signaturePart.split("=")[1];
 
-    if (!timestamp || !stripeSignature) {
+    if (!timestamp) {
       return false;
     }
 
@@ -124,8 +126,9 @@ async function verifyStripeSignature(
     );
 
     const expectedSignature = toHex(sig);
-
-    return secureCompare(expectedSignature, stripeSignature);
+    return v1Signatures.some((candidate) =>
+      secureCompare(expectedSignature, candidate)
+    );
   } catch (error) {
     console.error("Stripe signature verification failed:", error);
     return false;
