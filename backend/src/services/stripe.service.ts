@@ -235,7 +235,7 @@ export async function confirmOneTimePaymentIntentForUser(
     create: {
       user_id: userId,
       stripe_payment_intent_id: paymentIntent.id,
-      stripe_invoice_id: typeof paymentIntent.invoice === 'string' ? paymentIntent.invoice : null,
+      stripe_invoice_id: null,
       amount: paymentIntent.amount_received || paymentIntent.amount,
       currency: paymentIntent.currency,
       status: 'succeeded',

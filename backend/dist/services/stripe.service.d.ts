@@ -17,6 +17,10 @@ export interface PaymentSheetOneTimeResult {
     ephemeralKeySecret: string;
     customerId: string;
 }
+export interface ConfirmOneTimePaymentIntentParams {
+    userId: string;
+    paymentIntentId: string;
+}
 export interface CreateCheckoutSessionParams {
     userId: string;
     priceId: string;
@@ -40,6 +44,14 @@ export declare function createCheckoutSession(params: CreateCheckoutSessionParam
  * Amount/currency come from Stripe Price — never from the client.
  */
 export declare function createPaymentSheetParamsForOneTimePrice(params: CreatePaymentSheetOneTimeParams): Promise<PaymentSheetOneTimeResult>;
+/**
+ * Fallback for delayed/missed webhook delivery:
+ * verify PaymentIntent ownership/status and upsert payment_history.
+ */
+export declare function confirmOneTimePaymentIntentForUser(params: ConfirmOneTimePaymentIntentParams): Promise<{
+    confirmed: boolean;
+    status: string;
+}>;
 /**
  * Create a Stripe Customer Portal Session
  */
