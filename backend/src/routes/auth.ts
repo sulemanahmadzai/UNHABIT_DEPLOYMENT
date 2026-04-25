@@ -194,7 +194,7 @@ r.get("/me", requireAuth, async (req, res, next) => {
 
     const user = await Auth.getUserById(userId);
     const profile = await Auth.getProfile(userId);
-    const entitlement = await Auth.getOneTimePurchaseEntitlement(userId);
+    const entitlement = await Auth.getPurchaseEntitlement(userId);
 
     res.json({
       success: true,

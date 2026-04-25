@@ -20,8 +20,18 @@ function parseOneTimePriceAllowlist(): Set<string> | null {
   if (!raw) {
     return null;
   }
-  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const ids = raw.split(',').map((s: string) => s.trim()).filter(Boolean);
   return new Set(ids);
+}
+
+function toIsoFromUnix(ts?: number | null): string | null {
+  if (!ts) return null;
+  return new Date(ts * 1000).toISOString();
+}
+
+function getUnixField(source: Record<string, unknown>, key: string): number | null {
+  const value = source[key];
+  return typeof value === 'number' ? value : null;
 }
 
 function throwBadRequest(message: string): never {
@@ -77,6 +87,23 @@ export interface PaymentSheetOneTimeResult {
   ephemeralKeySecret: string;
   customerId: string;
 }
+export interface CreateSubscriptionSheetParams {
+  userId: string;
+  priceId: string;
+  trialDays: number;
+  customerEmail?: string | undefined;
+}
+
+export interface SubscriptionSheetResult {
+  setupIntentClientSecret: string;
+  ephemeralKeySecret: string;
+  customerId: string;
+  subscriptionId: string;
+}
+export interface ConfirmSubscriptionParams {
+  userId: string;
+  subscriptionId: string;
+}
 export interface ConfirmOneTimePaymentIntentParams {
   userId: string;
   paymentIntentId: string;
@@ -93,6 +120,58 @@ export interface CreateCheckoutSessionParams {
 export interface CreatePortalSessionParams {
   customerId: string;
   returnUrl: string;
+}
+
+function extractSubscriptionItem(subscription: Stripe.Subscription) {
+  const firstItem = subscription.items.data[0];
+  return {
+    priceId: firstItem?.price?.id ?? '',
+    quantity: firstItem?.quantity ?? 1,
+  };
+}
+
+async function upsertSubscriptionRecord(userId: string, subscription: Stripe.Subscription): Promise<void> {
+  const item = extractSubscriptionItem(subscription);
+  const subscriptionObj = subscription as unknown as Record<string, unknown>;
+  const currentPeriodStart = toIsoFromUnix(getUnixField(subscriptionObj, 'current_period_start'));
+  const currentPeriodEnd = toIsoFromUnix(getUnixField(subscriptionObj, 'current_period_end'));
+  const endedAt = toIsoFromUnix(subscription.ended_at);
+  const canceledAt = toIsoFromUnix(subscription.canceled_at);
+  const trialStart = toIsoFromUnix(subscription.trial_start);
+  const trialEnd = toIsoFromUnix(subscription.trial_end);
+
+  await prisma.subscriptions.upsert({
+    where: { stripe_subscription_id: subscription.id },
+    create: {
+      user_id: userId,
+      stripe_subscription_id: subscription.id,
+      stripe_customer_id: String(subscription.customer),
+      status: subscription.status,
+      price_id: item.priceId,
+      quantity: item.quantity,
+      cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+      current_period_start: currentPeriodStart,
+      current_period_end: currentPeriodEnd,
+      ended_at: endedAt,
+      canceled_at: canceledAt,
+      trial_start: trialStart,
+      trial_end: trialEnd,
+      updated_at: new Date(),
+    },
+    update: {
+      status: subscription.status,
+      price_id: item.priceId,
+      quantity: item.quantity,
+      cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+      current_period_start: currentPeriodStart,
+      current_period_end: currentPeriodEnd,
+      ended_at: endedAt,
+      canceled_at: canceledAt,
+      trial_start: trialStart,
+      trial_end: trialEnd,
+      updated_at: new Date(),
+    },
+  });
 }
 
 /**
@@ -206,6 +285,80 @@ export async function createPaymentSheetParamsForOneTimePrice(
 }
 
 /**
+ * Create Subscription + pending SetupIntent for React Native PaymentSheet trial flow.
+ * No immediate charge during trial; first charge happens after trial ends.
+ */
+export async function createSubscriptionSheetParams(
+  params: CreateSubscriptionSheetParams,
+): Promise<SubscriptionSheetResult> {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+  const { userId, priceId, customerEmail } = params;
+  const trialDays = Math.max(1, Math.min(30, Math.floor(params.trialDays || 3)));
+
+  const price = await stripe.prices.retrieve(priceId);
+  if (!price.active) {
+    throwBadRequest('Price is not active');
+  }
+  if (price.type !== 'recurring') {
+    throwBadRequest('Only recurring prices are supported for subscription trial checkout');
+  }
+
+  const existingSubscription = await prisma.subscriptions.findFirst({
+    where: {
+      user_id: userId,
+      status: { in: ['active', 'trialing'] },
+    },
+    orderBy: { created_at: 'desc' },
+  });
+  if (existingSubscription) {
+    throwBadRequest('User already has an active subscription');
+  }
+
+  const customerId = await ensureStripeCustomer(userId, customerEmail);
+  const ephemeralKey = await stripe.ephemeralKeys.create(
+    { customer: customerId },
+    { apiVersion: STRIPE_API_VERSION },
+  );
+  if (!ephemeralKey.secret) {
+    throw new Error('Stripe did not return an ephemeral key secret');
+  }
+
+  const subscription = await stripe.subscriptions.create({
+    customer: customerId,
+    items: [{ price: priceId, quantity: 1 }],
+    trial_period_days: trialDays,
+    payment_behavior: 'default_incomplete',
+    payment_settings: { save_default_payment_method: 'on_subscription' },
+    metadata: {
+      user_id: userId,
+      trial_days: String(trialDays),
+    },
+    expand: ['pending_setup_intent'],
+  });
+
+  let pendingSetupIntent: Stripe.SetupIntent | null = null;
+  if (typeof subscription.pending_setup_intent === 'string') {
+    pendingSetupIntent = await stripe.setupIntents.retrieve(subscription.pending_setup_intent);
+  } else if (subscription.pending_setup_intent) {
+    pendingSetupIntent = subscription.pending_setup_intent as Stripe.SetupIntent;
+  }
+
+  const setupIntentClientSecret = pendingSetupIntent?.client_secret;
+  if (!setupIntentClientSecret) {
+    throw new Error('Stripe did not return a SetupIntent client secret for trial setup');
+  }
+
+  await upsertSubscriptionRecord(userId, subscription);
+
+  return {
+    setupIntentClientSecret,
+    ephemeralKeySecret: ephemeralKey.secret,
+    customerId,
+    subscriptionId: subscription.id,
+  };
+}
+
+/**
  * Fallback for delayed/missed webhook delivery:
  * verify PaymentIntent ownership/status and upsert payment_history.
  */
@@ -250,6 +403,37 @@ export async function confirmOneTimePaymentIntentForUser(
   });
 
   return { confirmed: true, status: paymentIntent.status };
+}
+
+/**
+ * Fallback for delayed/missed webhook delivery:
+ * verify subscription ownership/status and upsert subscriptions row.
+ */
+export async function confirmSubscriptionForUser(
+  params: ConfirmSubscriptionParams,
+): Promise<{ confirmed: boolean; status: string }> {
+  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+  const { userId, subscriptionId } = params;
+
+  const localSub = await prisma.subscriptions.findUnique({
+    where: { stripe_subscription_id: subscriptionId },
+  });
+  if (localSub && localSub.user_id !== userId) {
+    throwBadRequest('Subscription does not belong to this user');
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ['pending_setup_intent'],
+  });
+
+  const metadataUserId = subscription.metadata?.user_id;
+  if (!localSub && metadataUserId && metadataUserId !== userId) {
+    throwBadRequest('Subscription does not belong to this user');
+  }
+
+  await upsertSubscriptionRecord(userId, subscription);
+  const confirmed = ['trialing', 'active'].includes(subscription.status);
+  return { confirmed, status: subscription.status };
 }
 
 /**

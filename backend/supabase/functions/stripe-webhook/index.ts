@@ -1,3 +1,4 @@
+// @ts-nocheck — This file runs on Deno (Supabase Edge Functions), not Node.
 /**
  * Stripe webhook — Supabase Edge (Deno).
  *

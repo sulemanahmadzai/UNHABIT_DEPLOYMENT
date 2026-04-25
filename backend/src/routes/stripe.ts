@@ -12,13 +12,14 @@ const r = Router();
  * Create a Stripe Checkout Session for subscription
  */
 /**
- * POST /api/stripe/create-payment-sheet
- * One-time PaymentIntent + ephemeral key for React Native PaymentSheet (amount from Stripe Price).
+ * POST /api/stripe/create-subscription-sheet
+ * Subscription + trial SetupIntent + ephemeral key for React Native PaymentSheet.
  */
-r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
+r.post('/create-subscription-sheet', requireAuth, async (req, res, next) => {
   try {
     const schema = z.object({
       priceId: z.string().min(1),
+      trialDays: z.number().int().min(1).max(30).optional(),
     });
 
     const data = schema.parse(req.body);
@@ -29,17 +30,19 @@ r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
       select: { email: true },
     });
 
-    const sheet = await StripeService.createPaymentSheetParamsForOneTimePrice({
+    const sheet = await StripeService.createSubscriptionSheetParams({
       userId,
       priceId: data.priceId,
+      trialDays: data.trialDays ?? 3,
       customerEmail: user?.email ?? undefined,
     });
 
     res.json({
       success: true,
-      paymentIntent: sheet.paymentIntentClientSecret,
+      setupIntent: sheet.setupIntentClientSecret,
       ephemeralKey: sheet.ephemeralKeySecret,
       customer: sheet.customerId,
+      subscriptionId: sheet.subscriptionId,
       publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
     });
   } catch (error) {
@@ -47,17 +50,17 @@ r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
   }
 });
 
-r.post('/confirm-one-time-payment', requireAuth, async (req, res, next) => {
+r.post('/confirm-subscription', requireAuth, async (req, res, next) => {
   try {
     const schema = z.object({
-      paymentIntentId: z.string().min(1),
+      subscriptionId: z.string().min(1),
     });
     const data = schema.parse(req.body);
     const userId = req.user!.id;
 
-    const result = await StripeService.confirmOneTimePaymentIntentForUser({
+    const result = await StripeService.confirmSubscriptionForUser({
       userId,
-      paymentIntentId: data.paymentIntentId,
+      subscriptionId: data.subscriptionId,
     });
 
     res.json({
