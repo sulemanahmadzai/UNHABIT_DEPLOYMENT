@@ -13,12 +13,20 @@ const r = Router();
  */
 r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
   try {
-    const schema = z.object({
-      priceId: z.string().min(1),
-    });
-
-    const data = schema.parse(req.body);
+    z.object({}).passthrough().parse(req.body ?? {});
     const userId = req.user!.id;
+    const envPriceId =
+      process.env.STRIPE_PRICE_ID ||
+      process.env.EXPO_PUBLIC_STRIPE_PRICE_ID ||
+      process.env.EXPO_PUBLIC_STRIPE_SUBSCRIPTION_PRICE_ID ||
+      '';
+
+    if (!envPriceId) {
+      return res.status(500).json({
+        success: false,
+        error: 'Missing STRIPE_PRICE_ID on backend',
+      });
+    }
 
     const user = await prisma.users.findUnique({
       where: { id: userId },
@@ -27,7 +35,7 @@ r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
 
     const sheet = await StripeService.createPaymentSheetParamsForOneTimePrice({
       userId,
-      priceId: data.priceId,
+      priceId: envPriceId,
       customerEmail: user?.email ?? undefined,
     });
 
