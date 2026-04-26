@@ -14,7 +14,7 @@ import redis from "../db/redis.js";
 import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
-const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "120000", 10); // 2 minutes for complex AI operations
+const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 10); // 60 seconds (AI has internal 45s timeout + fallback)
 
 // Cache TTLs for different AI endpoints (in seconds)
 const CACHE_TTL = {
@@ -218,17 +218,18 @@ interface WhyDayResponse {
 async function makeRequest<T>(
   endpoint: string,
   body: unknown,
-  retries = 2,
+  retries = 1,
   cacheTTL = 0 // 0 means no cache
 ): Promise<AIServiceResponse<T>> {
   const url = `${AI_SERVICE_URL}${endpoint}`;
+  const startTime = Date.now();
 
   // Check cache if TTL is set
   if (cacheTTL > 0) {
     const requestHash = redis.hash(body);
     const cached = await getCachedAIResponse(endpoint, requestHash);
     if (cached !== null) {
-      console.log(`✅ AI cache hit: ${endpoint}`);
+      console.log(`✅ AI cache hit: ${endpoint} (${Date.now() - startTime}ms)`);
       return { success: true, data: cached as T };
     }
   }
@@ -237,6 +238,9 @@ async function makeRequest<T>(
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), AI_SERVICE_TIMEOUT);
+
+      const attemptStart = Date.now();
+      console.log(`🔄 AI request: ${endpoint} (attempt ${attempt + 1}/${retries + 1})`);
 
       const response = await fetch(url, {
         method: "POST",
@@ -255,6 +259,8 @@ async function makeRequest<T>(
       }
 
       const data = await response.json() as T;
+      const elapsed = Date.now() - attemptStart;
+      console.log(`✅ AI response: ${endpoint} in ${elapsed}ms`);
 
       // Cache successful response if TTL is set
       if (cacheTTL > 0) {
@@ -267,11 +273,14 @@ async function makeRequest<T>(
     } catch (error) {
       if (attempt === retries) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        console.error(`AI service request failed after ${retries + 1} attempts:`, message);
+        const elapsed = Date.now() - startTime;
+        console.error(`❌ AI request failed after ${retries + 1} attempts (${elapsed}ms):`, message);
         return { success: false, error: message };
       }
-      // Wait before retry (exponential backoff)
-      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      // Wait before retry (exponential backoff, max 2s)
+      const backoff = Math.min(Math.pow(2, attempt) * 1000, 2000);
+      console.log(`⏳ AI retry in ${backoff}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   }
 
@@ -507,13 +516,9 @@ export async function generatePlan21D(
     },
   };
 
-  const result = await makeRequest<Plan21DResponse>("/plan-21d", aiServiceRequest, 3, CACHE_TTL.PLAN_21D); // 3 retries for expensive operation
-
-  // If main endpoint fails, try fallback
-  if (!result.success) {
-    console.log("Primary plan generation failed, trying fallback...");
-    return makeRequest<Plan21DResponse>("/plan-21d-fallback", aiServiceRequest, 2, CACHE_TTL.PLAN_21D);
-  }
+  // AI service handles fallback internally (returns fallback plan on timeout/failure)
+  // So we only need 1 retry here (2 total attempts max)
+  const result = await makeRequest<Plan21DResponse>("/plan-21d", aiServiceRequest, 1, CACHE_TTL.PLAN_21D);
 
   return result;
 }

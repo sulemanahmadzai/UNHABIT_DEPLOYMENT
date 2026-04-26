@@ -127,7 +127,7 @@ def _llm_json(
 ) -> Dict[str, Any]:
     """
     Call the JSON-optimized LLM and return a Python dict.
-    Retries with slightly higher temperature and stronger JSON instructions if parsing fails.
+    Retries with slightly higher temperature if parsing fails.
     """
     # Ensure at least one attempt
     attempts = max(1, retries + 1)
@@ -137,8 +137,8 @@ def _llm_json(
             model=MODEL_JSON,
             temperature=temperature + (attempt * 0.2),
             response_format={"type": "json_object"},
-            timeout=90.0,  # 90 second timeout for complex operations
-            max_retries=1,  # Reduce internal retries since we handle retries ourselves
+            timeout=50.0,  # 50 second timeout (plan21_node has its own 45s hard timeout above this)
+            max_retries=0,  # No internal retries - we handle retries ourselves
         )
 
         resp = llm.invoke(prompt).content
@@ -146,12 +146,8 @@ def _llm_json(
         try:
             return json.loads(resp)
         except Exception:
-            # strengthen instructions & increase randomness
-            if attempt < attempts - 1:  # Don't modify prompt on last attempt
-                prompt += (
-                    "\nReturn STRICT JSON. No commentary. "
-                    "Do NOT repeat previous suggestions."
-                )
+            # Increase randomness on next attempt but DON'T append to prompt
+            # (appending grows the already-large prompt and slows down generation)
             continue
 
     # final fallback if everything fails
@@ -881,8 +877,13 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
     Generate the 21-day plan using the QuizSummary as context
     + category-specific guidance so different habits feel truly different.
     
-    Optimized to handle timeouts by using fallback more aggressively.
+    Optimized with a hard 45-second timeout — if the LLM doesn't respond
+    in time, we immediately return the personalized fallback plan.
+    This prevents the request from hanging for 5-10 minutes.
     """
+    import concurrent.futures
+    import time
+
     if not state.quiz_summary:
         return {"plan21": _fallback_plan21(None)}
 
@@ -894,10 +895,27 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         category_guidance=guidance,
     )
 
+    # Hard timeout: if the LLM call doesn't complete within 45 seconds,
+    # we immediately return the fallback plan instead of waiting 90+ seconds
+    LLM_TIMEOUT_SECONDS = 45
+    start_time = time.time()
+
     try:
-        # Generate plan with higher token limit for 21 days of tasks
-        # Use 1 retry (= 2 total attempts) to balance speed vs reliability
-        data = _llm_json(prompt, max_tokens=4000, temperature=0.35, retries=1)
+        # Use a thread pool with timeout to enforce the hard limit
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                _llm_json, prompt, 3000, 0.35, 0  # max_tokens=3000, temp=0.35, retries=0 (single attempt)
+            )
+            try:
+                data = future.result(timeout=LLM_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                elapsed = time.time() - start_time
+                print(f"[plan21_node] ⏱️ LLM timed out after {elapsed:.1f}s, using fallback plan")
+                future.cancel()
+                return {"plan21": _fallback_plan21(state.quiz_summary)}
+
+        elapsed = time.time() - start_time
+        print(f"[plan21_node] LLM responded in {elapsed:.1f}s")
 
         # Basic sanitization — day_tasks values should be lists of task dicts
         day_tasks = data.get("day_tasks", {}) or {}
@@ -925,10 +943,11 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
             )
 
         plan = Plan21D(**data)
-        print(f"[plan21_node] ✅ Successfully generated AI plan with {len(day_tasks)} days")
+        print(f"[plan21_node] ✅ Successfully generated AI plan with {len(day_tasks)} days in {elapsed:.1f}s")
     except Exception as e:
         # Log the error but use fallback instead of failing
-        print(f"[plan21_node] ⚠️ LLM generation failed: {e}, using fallback")
+        elapsed = time.time() - start_time
+        print(f"[plan21_node] ⚠️ LLM generation failed after {elapsed:.1f}s: {e}, using fallback")
         plan = _fallback_plan21(state.quiz_summary)
 
     return {"plan21": plan}

@@ -7,6 +7,7 @@ core Unhabit AI nodes (safety, quiz, summary, plan, coach, why-day, canonicaliza
 File: api_main.py
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -343,7 +344,7 @@ def health_check():
     tags=["onboarding"],
     summary="Run safety + quiz_form for a new habit",
 )
-def onboarding_start(req: OnboardingStartRequest):
+async def onboarding_start(req: OnboardingStartRequest):
     """
     This endpoint mirrors the first part of your LangGraph:
 
@@ -368,11 +369,12 @@ def onboarding_start(req: OnboardingStartRequest):
             habit_description=req.habit_description,
         )
 
+        # Run blocking LLM calls in thread pool
         # 1) Safety
-        state = _apply_node(state, safety_node)
+        state = await asyncio.to_thread(_apply_node, state, safety_node)
 
         # 2) Quiz form
-        state = _apply_node(state, quiz_form_node)
+        state = await asyncio.to_thread(_apply_node, state, quiz_form_node)
 
         return state
 
@@ -495,7 +497,7 @@ def run_safety(req: SafetyRequest):
     tags=["quiz"],
     summary="Generate diagnostic quiz (MCQ)",
 )
-def generate_quiz(req: QuizFormRequest):
+async def generate_quiz(req: QuizFormRequest):
     """
     Wraps ai_nodes.quiz_form_node(state) which returns {"quiz_form": QuizForm}.
 
@@ -505,7 +507,7 @@ def generate_quiz(req: QuizFormRequest):
     require_openai_key()
 
     try:
-        result = quiz_form_node(req.state)
+        result = await asyncio.to_thread(quiz_form_node, req.state)
         quiz_form = result.get("quiz_form")
         if isinstance(quiz_form, QuizForm):
             return quiz_form
@@ -524,7 +526,7 @@ def generate_quiz(req: QuizFormRequest):
     tags=["quiz"],
     summary="Summarize quiz into mechanistic profile (canonicalization happens here)",
 )
-def summarize_quiz(req: QuizSummaryRequest):
+async def summarize_quiz(req: QuizSummaryRequest):
     """
     This is the BRAIN of the system.
 
@@ -548,7 +550,7 @@ def summarize_quiz(req: QuizSummaryRequest):
     require_openai_key()
 
     try:
-        result = quiz_summary_node(req.state)
+        result = await asyncio.to_thread(quiz_summary_node, req.state)
         summary = result.get("quiz_summary")
         if isinstance(summary, QuizSummary):
             return summary
@@ -572,7 +574,7 @@ def summarize_quiz(req: QuizSummaryRequest):
     tags=["plan"],
     summary="Generate main 21-day reduction plan",
 )
-def generate_plan(req: PlanRequest):
+async def generate_plan(req: PlanRequest):
     """
     Wraps ai_nodes.plan21_node(state) which returns {"plan21": Plan21D}.
 
@@ -581,11 +583,15 @@ def generate_plan(req: PlanRequest):
 
     If quiz_summary is missing or the LLM fails, the node falls back internally
     to a deterministic _fallback_plan21.
+
+    Runs in a thread pool to avoid blocking the ASGI event loop.
     """
     require_openai_key()
 
     try:
-        result = plan21_node(req.state)
+        # Run the blocking LLM call in a thread pool so it doesn't block
+        # the async event loop and cause other requests to queue up
+        result = await asyncio.to_thread(plan21_node, req.state)
         plan = result.get("plan21")
         if isinstance(plan, Plan21D):
             return plan
@@ -604,7 +610,7 @@ def generate_plan(req: PlanRequest):
     tags=["plan"],
     summary="Generate fallback 21-day plan (no LLM)",
 )
-def generate_fallback_plan(req: FallbackPlanRequest):
+async def generate_fallback_plan(req: FallbackPlanRequest):
     """
     Directly calls the internal _fallback_plan21 helper for deterministic plans.
 
@@ -614,7 +620,7 @@ def generate_fallback_plan(req: FallbackPlanRequest):
     - When you want a guaranteed-safe default plan
     """
     try:
-        plan = _fallback_plan21(req.state.quiz_summary)
+        plan = await asyncio.to_thread(_fallback_plan21, req.state.quiz_summary)
         return plan
     except Exception as e:
         logger.exception(f"_fallback_plan21 failed: {e}")
@@ -635,7 +641,7 @@ def generate_fallback_plan(req: FallbackPlanRequest):
     tags=["coach"],
     summary="Context-aware daily coach",
 )
-def coach(req: CoachRequest):
+async def coach(req: CoachRequest):
     """
     Wraps ai_nodes.coach_node(state) which returns:
     {
@@ -651,7 +657,7 @@ def coach(req: CoachRequest):
     require_openai_key()
 
     try:
-        result = coach_node(req.state)
+        result = await asyncio.to_thread(coach_node, req.state)
         reply = result.get("coach_reply", "")
         history = result.get("chat_history", [])
 
