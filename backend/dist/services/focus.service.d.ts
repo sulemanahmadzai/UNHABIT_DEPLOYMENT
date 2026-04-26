@@ -8,11 +8,11 @@ export declare function startSession(userId: string, data: {
     user_id: string;
     created_at: Date;
     id: string;
+    ended_at: Date | null;
     started_at: Date;
     completed: boolean;
     journey_day_id: string | null;
     duration_mins: number;
-    ended_at: Date | null;
     xp_awarded: number;
 }>;
 /**
@@ -23,11 +23,11 @@ export declare function stopSession(userId: string, sessionId: string): Promise<
         user_id: string;
         created_at: Date;
         id: string;
+        ended_at: Date | null;
         started_at: Date;
         completed: boolean;
         journey_day_id: string | null;
         duration_mins: number;
-        ended_at: Date | null;
         xp_awarded: number;
     };
     already_completed: boolean;
@@ -38,11 +38,11 @@ export declare function stopSession(userId: string, sessionId: string): Promise<
         user_id: string;
         created_at: Date;
         id: string;
+        ended_at: Date | null;
         started_at: Date;
         completed: boolean;
         journey_day_id: string | null;
         duration_mins: number;
-        ended_at: Date | null;
         xp_awarded: number;
     };
     actual_duration_mins: number;
@@ -57,11 +57,11 @@ export declare function cancelSession(userId: string, sessionId: string): Promis
         user_id: string;
         created_at: Date;
         id: string;
+        ended_at: Date | null;
         started_at: Date;
         completed: boolean;
         journey_day_id: string | null;
         duration_mins: number;
-        ended_at: Date | null;
         xp_awarded: number;
     };
     already_completed: boolean;
@@ -85,11 +85,11 @@ export declare function logSession(userId: string, data: {
         user_id: string;
         created_at: Date;
         id: string;
+        ended_at: Date | null;
         started_at: Date;
         completed: boolean;
         journey_day_id: string | null;
         duration_mins: number;
-        ended_at: Date | null;
         xp_awarded: number;
     };
     xp_earned: number;
@@ -107,11 +107,11 @@ export declare function getHistory(userId: string, limit?: number, offset?: numb
     user_id: string;
     created_at: Date;
     id: string;
+    ended_at: Date | null;
     started_at: Date;
     completed: boolean;
     journey_day_id: string | null;
     duration_mins: number;
-    ended_at: Date | null;
     xp_awarded: number;
 })[]>;
 /**
@@ -146,11 +146,11 @@ export declare function getActiveSession(userId: string): Promise<{
     user_id: string;
     created_at: Date;
     id: string;
+    ended_at: Date | null;
     started_at: Date;
     completed: boolean;
     journey_day_id: string | null;
     duration_mins: number;
-    ended_at: Date | null;
     xp_awarded: number;
 } | null>;
 //# sourceMappingURL=focus.service.d.ts.map

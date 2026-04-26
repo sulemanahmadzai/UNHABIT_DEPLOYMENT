@@ -9,8 +9,8 @@ export declare function getSessions(userId: string, limit: number): Promise<({
 } & {
     user_id: string;
     id: string;
-    started_at: Date;
     ended_at: Date | null;
+    started_at: Date;
 })[]>;
 /**
  * Create a new coach session
@@ -18,8 +18,8 @@ export declare function getSessions(userId: string, limit: number): Promise<({
 export declare function createSession(userId: string): Promise<{
     user_id: string;
     id: string;
-    started_at: Date;
     ended_at: Date | null;
+    started_at: Date;
 }>;
 /**
  * Get session with messages
@@ -43,8 +43,8 @@ export declare function getSessionWithMessages(userId: string, sessionId: string
 } & {
     user_id: string;
     id: string;
-    started_at: Date;
     ended_at: Date | null;
+    started_at: Date;
 }) | null>;
 /**
  * Add a message to a session
@@ -73,8 +73,8 @@ export declare function saveAction(sessionId: string, action: string, payload?: 
 export declare function endSession(userId: string, sessionId: string): Promise<{
     user_id: string;
     id: string;
-    started_at: Date;
     ended_at: Date | null;
+    started_at: Date;
 } | null>;
 /**
  * Get recent sessions for context
@@ -91,7 +91,7 @@ export declare function getRecentSessionContext(userId: string): Promise<({
 } & {
     user_id: string;
     id: string;
-    started_at: Date;
     ended_at: Date | null;
+    started_at: Date;
 }) | null>;
 //# sourceMappingURL=coach.service.d.ts.map

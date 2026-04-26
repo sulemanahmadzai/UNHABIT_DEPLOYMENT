@@ -6,12 +6,8 @@ import { prisma } from '../db/prisma.js';
 import * as Scenarios from '../services/notification-scenarios.service.js';
 const r = Router();
 /**
- * POST /api/stripe/create-checkout-session
- * Create a Stripe Checkout Session for subscription
- */
-/**
  * POST /api/stripe/create-payment-sheet
- * One-time PaymentIntent + ephemeral key for React Native PaymentSheet (amount from Stripe Price).
+ * One-time PaymentIntent + ephemeral key for React Native PaymentSheet.
  */
 r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
     try {
@@ -41,7 +37,11 @@ r.post('/create-payment-sheet', requireAuth, async (req, res, next) => {
         next(error);
     }
 });
-r.post('/confirm-one-time-payment', requireAuth, async (req, res, next) => {
+/**
+ * POST /api/stripe/confirm-payment-intent
+ * Optional fallback if webhook delivery is delayed.
+ */
+r.post('/confirm-payment-intent', requireAuth, async (req, res, next) => {
     try {
         const schema = z.object({
             paymentIntentId: z.string().min(1),
@@ -190,10 +190,39 @@ r.post('/reactivate-subscription', requireAuth, async (req, res, next) => {
  * Get Stripe publishable key
  */
 r.get('/config', (_req, res) => {
-    res.json({
+    const priceId = process.env.STRIPE_PRICE_ID ||
+        process.env.EXPO_PUBLIC_STRIPE_PRICE_ID ||
+        process.env.EXPO_PUBLIC_STRIPE_SUBSCRIPTION_PRICE_ID ||
+        '';
+    const sendBasic = () => res.json({
         success: true,
         publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     });
+    const stripeClient = StripeService.stripe;
+    if (!priceId || !stripeClient) {
+        return sendBasic();
+    }
+    stripeClient.prices.retrieve(priceId)
+        .then((price) => {
+        const unitAmount = typeof price.unit_amount === 'number' ? price.unit_amount : undefined;
+        const currency = price.currency || 'usd';
+        const amountFormatted = typeof unitAmount === 'number'
+            ? new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currency.toUpperCase(),
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }).format(unitAmount / 100)
+            : undefined;
+        res.json({
+            success: true,
+            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+            unitAmount,
+            currency,
+            amountFormatted,
+        });
+    })
+        .catch(() => sendBasic());
 });
 export default r;
 //# sourceMappingURL=stripe.js.map

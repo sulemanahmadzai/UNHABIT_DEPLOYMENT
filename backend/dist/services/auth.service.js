@@ -191,11 +191,29 @@ export async function getProfile(userId) {
     return profile;
 }
 /**
- * One-time PaymentSheet purchases are stored in payment_history with status succeeded
- * and stripe_invoice_id null (subscription invoice payments set invoice id).
+ * Premium entitlement:
+ * - active/trialing Stripe subscription
+ * - OR legacy one-time purchase row in payment_history
  */
-export async function getOneTimePurchaseEntitlement(userId) {
-    const row = await db.payment_history.findFirst({
+export async function getPurchaseEntitlement(userId) {
+    const subscription = await db.subscriptions.findFirst({
+        where: {
+            user_id: userId,
+            status: { in: ['active', 'trialing'] },
+        },
+        orderBy: { created_at: 'desc' },
+    });
+    if (subscription) {
+        const grantedAt = subscription.trial_start ?? subscription.current_period_start ?? subscription.created_at;
+        return {
+            has_paid: true,
+            has_premium: true,
+            one_time_purchase_at: grantedAt?.toISOString() ?? null,
+            subscription_status: subscription.status,
+            trial_end: subscription.trial_end?.toISOString() ?? null,
+        };
+    }
+    const oneTimeRow = await db.payment_history.findFirst({
         where: {
             user_id: userId,
             status: "succeeded",
@@ -203,11 +221,13 @@ export async function getOneTimePurchaseEntitlement(userId) {
         },
         orderBy: { created_at: "desc" },
     });
-    const unlocked = !!row;
+    const unlocked = !!oneTimeRow;
     return {
         has_paid: unlocked,
         has_premium: unlocked,
-        one_time_purchase_at: row?.created_at?.toISOString() ?? null,
+        one_time_purchase_at: oneTimeRow?.created_at?.toISOString() ?? null,
+        subscription_status: null,
+        trial_end: null,
     };
 }
 /**

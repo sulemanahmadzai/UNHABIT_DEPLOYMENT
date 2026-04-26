@@ -17,6 +17,22 @@ export interface PaymentSheetOneTimeResult {
     ephemeralKeySecret: string;
     customerId: string;
 }
+export interface CreateSubscriptionSheetParams {
+    userId: string;
+    priceId: string;
+    trialDays: number;
+    customerEmail?: string | undefined;
+}
+export interface SubscriptionSheetResult {
+    setupIntentClientSecret: string;
+    ephemeralKeySecret: string;
+    customerId: string;
+    subscriptionId: string;
+}
+export interface ConfirmSubscriptionParams {
+    userId: string;
+    subscriptionId: string;
+}
 export interface ConfirmOneTimePaymentIntentParams {
     userId: string;
     paymentIntentId: string;
@@ -45,10 +61,23 @@ export declare function createCheckoutSession(params: CreateCheckoutSessionParam
  */
 export declare function createPaymentSheetParamsForOneTimePrice(params: CreatePaymentSheetOneTimeParams): Promise<PaymentSheetOneTimeResult>;
 /**
+ * Create Subscription + pending SetupIntent for React Native PaymentSheet trial flow.
+ * No immediate charge during trial; first charge happens after trial ends.
+ */
+export declare function createSubscriptionSheetParams(params: CreateSubscriptionSheetParams): Promise<SubscriptionSheetResult>;
+/**
  * Fallback for delayed/missed webhook delivery:
  * verify PaymentIntent ownership/status and upsert payment_history.
  */
 export declare function confirmOneTimePaymentIntentForUser(params: ConfirmOneTimePaymentIntentParams): Promise<{
+    confirmed: boolean;
+    status: string;
+}>;
+/**
+ * Fallback for delayed/missed webhook delivery:
+ * verify subscription ownership/status and upsert subscriptions row.
+ */
+export declare function confirmSubscriptionForUser(params: ConfirmSubscriptionParams): Promise<{
     confirmed: boolean;
     status: string;
 }>;
