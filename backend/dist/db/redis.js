@@ -1,6 +1,26 @@
 import IORedis, { Redis as RedisType } from "ioredis";
 import crypto from "crypto";
 /**
+ * Deterministic, key-sorted JSON.stringify.
+ * Objects with the same data (regardless of key order or whitespace) produce
+ * identical strings. Used to build stable cache keys.
+ */
+function stableStringify(value) {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return "[" + value.map((v) => stableStringify(v)).join(",") + "]";
+    }
+    const obj = value;
+    const keys = Object.keys(obj).sort();
+    return ("{" +
+        keys
+            .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+            .join(",") +
+        "}");
+}
+/**
  * Redis Service - Centralized Redis client with connection management
  *
  * Features:
@@ -229,10 +249,18 @@ class RedisService {
         }
     }
     /**
-     * Hash a value for deterministic cache keys
+     * Hash a value for deterministic cache keys.
+     *
+     * IMPORTANT: object keys are sorted recursively before stringifying so that
+     *   { a: 1, b: 2 }   and   { b: 2, a: 1 }
+     * produce the SAME hash. Previously this used plain JSON.stringify, which
+     * meant any whitespace difference or key reordering caused cache misses on
+     * payloads that were semantically identical (e.g. for /plan-21d this could
+     * make two equivalent requests miss the cache and re-trigger an expensive
+     * LLM call).
      */
     hash(value) {
-        const str = typeof value === "string" ? value : JSON.stringify(value);
+        const str = typeof value === "string" ? value : stableStringify(value);
         return crypto.createHash("sha256").update(str).digest("hex").substring(0, 16);
     }
     /**

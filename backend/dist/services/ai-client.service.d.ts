@@ -67,15 +67,19 @@ interface QuizFormResponse {
         id: string;
         question: string;
         helper_text?: string | null;
+        has_other_option?: boolean;
         options: Array<{
             id: string;
             label: string;
             helper_text?: string | null;
+            allow_custom_input?: boolean;
+            custom_input_key?: string;
+            custom_input_placeholder?: string;
         }>;
     }>;
 }
 interface QuizSummaryRequest {
-    answers: Record<string, string | string[]>;
+    answers: Record<string, unknown>;
     habit_category: string;
     habit_description?: string | undefined;
     quiz_form?: {
@@ -198,10 +202,18 @@ export declare function generateQuizForm(request: QuizFormRequest): Promise<AISe
 export declare function getQuizSummary(request: QuizSummaryRequest): Promise<AIServiceResponse<QuizSummaryResponse>>;
 /**
  * Generate 21-day plan
- * AI expects: { state: HabitState } where HabitState has:
- *   - quiz_summary: QuizSummary (required)
- *   - habit_description (optional but recommended)
- * AI returns: Plan21D { plan_summary, day_tasks: {day_1: "...", ...}, day_whys?: {...} }
+ *
+ * Strategy (the fast path):
+ *   1. Check Redis with a stable canonical cache key → return immediately on hit.
+ *   2. On miss, race the AI service against a soft deadline (PLAN_FAST_RESPONSE_MS).
+ *      - If the AI returns first → cache + return real plan.
+ *      - If the deadline wins → return a deterministic fallback NOW and let the
+ *        AI call keep running in the background to populate the cache.
+ *   3. The next request for the same canonical habit gets the real AI plan
+ *      from cache (~5ms).
+ *
+ * This guarantees the user-facing endpoint always responds in well under
+ * `PLAN_FAST_RESPONSE_MS`, regardless of OpenAI latency.
  */
 export declare function generatePlan21D(request: Plan21DRequest): Promise<AIServiceResponse<Plan21DResponse>>;
 /**

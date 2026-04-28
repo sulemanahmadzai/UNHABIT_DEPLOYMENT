@@ -124,20 +124,25 @@ def _llm_json(
     max_tokens: int = 800,
     temperature: float = 0.5,
     retries: int = 2,
+    timeout: float = 18.0,
 ) -> Dict[str, Any]:
     """
     Call the JSON-optimized LLM and return a Python dict.
     Retries with slightly higher temperature if parsing fails.
+
+    `timeout` defaults to 18s — slightly under plan21_node's 20s hard
+    timeout, so an LLM that genuinely hangs gets killed by its own client
+    rather than leaving an orphaned thread running for 50+ seconds.
     """
     # Ensure at least one attempt
     attempts = max(1, retries + 1)
-    
+
     for attempt in range(attempts):
         llm = ChatOpenAI(
             model=MODEL_JSON,
             temperature=temperature + (attempt * 0.2),
             response_format={"type": "json_object"},
-            timeout=50.0,  # 50 second timeout (plan21_node has its own 45s hard timeout above this)
+            timeout=timeout,
             max_retries=0,  # No internal retries - we handle retries ourselves
         )
 
@@ -895,24 +900,47 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         category_guidance=guidance,
     )
 
-    # Hard timeout: if the LLM call doesn't complete within 45 seconds,
-    # we immediately return the fallback plan instead of waiting 90+ seconds
-    LLM_TIMEOUT_SECONDS = 45
+    # Hard timeout: keep this tight enough that even when the LLM is slow,
+    # the AI service answers within ~30s. The backend layer additionally
+    # implements stale-while-revalidate with a ~4-5s soft deadline, so
+    # users never block on this; this timeout only governs how long the
+    # background AI call runs before it gives up and lets the fallback win.
+    LLM_TIMEOUT_SECONDS = int(os.getenv("PLAN_LLM_TIMEOUT_SECONDS", "20"))
+    # With the compact prompt (shorter titles/descriptions/reasons) each task
+    # averages ~55 tokens → 21 days × 3 tasks × 55 = ~3465, plus plan_summary
+    # and JSON structure ≈ 4000 total. Cap at 4000 so the model doesn't pad.
+    LLM_MAX_TOKENS = int(os.getenv("PLAN_LLM_MAX_TOKENS", "4000"))
     start_time = time.time()
 
+    # NOTE: We deliberately do NOT use `with ThreadPoolExecutor(...)` here.
+    # That context manager calls executor.shutdown(wait=True) on exit, which
+    # blocks until any still-running future finishes. Because LangChain's
+    # OpenAI call cannot be cancelled mid-flight, that means after our hard
+    # timeout fires we'd still wait for the LLM's *internal* timeout (50s) to
+    # elapse — making the endpoint take ~50s instead of ~30s. Using a manual
+    # executor + shutdown(wait=False, cancel_futures=True) lets us return
+    # immediately and let the orphaned thread die in the background.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        # Use a thread pool with timeout to enforce the hard limit
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                _llm_json, prompt, 3000, 0.35, 0  # max_tokens=3000, temp=0.35, retries=0 (single attempt)
-            )
+        future = executor.submit(
+            _llm_json,
+            prompt,
+            LLM_MAX_TOKENS,  # cap output tokens (3000 was excessive — 2200 fits 21×3 tasks comfortably)
+            0.35,            # temperature
+            0,               # no in-fn retries
+        )
+        try:
+            data = future.result(timeout=LLM_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            elapsed = time.time() - start_time
+            print(f"[plan21_node] ⏱️ LLM timed out after {elapsed:.1f}s, returning fallback (orphaned LLM thread will be GC'd)")
+            # Critical: do NOT block waiting for the LLM thread.
             try:
-                data = future.result(timeout=LLM_TIMEOUT_SECONDS)
-            except concurrent.futures.TimeoutError:
-                elapsed = time.time() - start_time
-                print(f"[plan21_node] ⏱️ LLM timed out after {elapsed:.1f}s, using fallback plan")
-                future.cancel()
-                return {"plan21": _fallback_plan21(state.quiz_summary)}
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                # cancel_futures only exists on Python 3.9+; old fallback
+                executor.shutdown(wait=False)
+            return {"plan21": _fallback_plan21(state.quiz_summary)}
 
         elapsed = time.time() - start_time
         print(f"[plan21_node] LLM responded in {elapsed:.1f}s")
@@ -949,6 +977,14 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         elapsed = time.time() - start_time
         print(f"[plan21_node] ⚠️ LLM generation failed after {elapsed:.1f}s: {e}, using fallback")
         plan = _fallback_plan21(state.quiz_summary)
+    finally:
+        # Always release the executor without waiting for any orphaned thread.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            executor.shutdown(wait=False)
+        except Exception:
+            pass
 
     return {"plan21": plan}
 

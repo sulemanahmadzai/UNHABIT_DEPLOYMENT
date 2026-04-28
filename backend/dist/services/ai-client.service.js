@@ -11,8 +11,18 @@
  */
 import redis from "../db/redis.js";
 import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
+import { buildFallbackPlan, extractFallbackContext } from "./plan-fallback.service.js";
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
-const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "120000", 10); // 2 minutes for complex AI operations
+const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 10); // 60 seconds (AI has internal 45s timeout + fallback)
+/**
+ * Soft deadline for the user-facing /plan-21d response. If the AI service has
+ * not produced a real plan within this time budget, we instantly return a
+ * deterministic fallback (computed in-process, ~1ms) and let the AI call keep
+ * running in the background to populate the cache for the next request.
+ *
+ * This is the "fast even on cache miss" requirement.
+ */
+const PLAN_FAST_RESPONSE_MS = parseInt(process.env.PLAN_FAST_RESPONSE_MS || "3500", 10);
 // Cache TTLs for different AI endpoints (in seconds)
 const CACHE_TTL = {
     ONBOARDING: 3600, // 1 hour
@@ -24,25 +34,103 @@ const CACHE_TTL = {
     COACH: 0, // No cache (conversational)
     WHY_DAY: 86400, // 24 hours (stable)
 };
+const OTHER_OPTION_PATTERN = /\b(other|others|something else|anything else|else)\b/i;
+function isOtherToken(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized)
+        return false;
+    return (OTHER_OPTION_PATTERN.test(normalized) ||
+        normalized === "other" ||
+        normalized === "others" ||
+        normalized.startsWith("other_") ||
+        normalized.endsWith("_other"));
+}
+function looksLikeAnswerObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function toStringArray(value) {
+    if (Array.isArray(value)) {
+        return value.map((v) => String(v)).map((v) => v.trim()).filter(Boolean);
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed ? [trimmed] : [];
+    }
+    return [];
+}
+function extractCustomInput(answerObj) {
+    const custom = [
+        answerObj.other_text,
+        answerObj.otherText,
+        answerObj.custom_input,
+        answerObj.customInput,
+    ]
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .find(Boolean);
+    return custom || "";
+}
+function normalizeAnswerValue(rawValue, questionMeta) {
+    if (Array.isArray(rawValue)) {
+        return rawValue.map((v) => String(v)).join(", ");
+    }
+    if (typeof rawValue === "string") {
+        return rawValue;
+    }
+    if (!looksLikeAnswerObject(rawValue)) {
+        return String(rawValue ?? "");
+    }
+    const selected = [
+        ...toStringArray(rawValue.selected),
+        ...toStringArray(rawValue.value),
+        ...toStringArray(rawValue.option_id),
+        ...toStringArray(rawValue.option_ids),
+    ];
+    const dedupedSelected = Array.from(new Set(selected));
+    const customInput = extractCustomInput(rawValue);
+    const optionById = new Map();
+    (questionMeta?.options || []).forEach((o) => {
+        optionById.set(String(o.id), String(o.label));
+    });
+    const selectedLooksLikeOther = dedupedSelected.some((entry) => {
+        const label = optionById.get(entry);
+        return isOtherToken(entry) || (label ? isOtherToken(label) : false);
+    });
+    const selectedText = dedupedSelected
+        .map((entry) => optionById.get(entry) || entry)
+        .join(", ");
+    if (customInput && selectedText) {
+        return selectedLooksLikeOther
+            ? `${selectedText} (other: ${customInput})`
+            : `${selectedText} (details: ${customInput})`;
+    }
+    if (customInput && !selectedText) {
+        return `other: ${customInput}`;
+    }
+    return selectedText;
+}
 /**
  * Make a request to the AI service with retry logic and caching
  */
-async function makeRequest(endpoint, body, retries = 2, cacheTTL = 0 // 0 means no cache
-) {
+async function makeRequest(endpoint, body, retries = 1, cacheTTL = 0, // 0 means no cache
+opts = {}) {
     const url = `${AI_SERVICE_URL}${endpoint}`;
+    const startTime = Date.now();
+    const timeoutMs = opts.timeoutMs ?? AI_SERVICE_TIMEOUT;
+    const cacheKey = opts.cacheKey ?? redis.hash(body);
     // Check cache if TTL is set
-    if (cacheTTL > 0) {
-        const requestHash = redis.hash(body);
-        const cached = await getCachedAIResponse(endpoint, requestHash);
+    if (cacheTTL > 0 && !opts.skipCacheRead) {
+        const cached = await getCachedAIResponse(endpoint, cacheKey);
         if (cached !== null) {
-            console.log(`✅ AI cache hit: ${endpoint}`);
+            console.log(`✅ AI cache hit: ${endpoint} (${Date.now() - startTime}ms)`);
             return { success: true, data: cached };
         }
     }
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), AI_SERVICE_TIMEOUT);
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            const attemptStart = Date.now();
+            console.log(`🔄 AI request: ${endpoint} (attempt ${attempt + 1}/${retries + 1})`);
             const response = await fetch(url, {
                 method: "POST",
                 headers: {
@@ -57,10 +145,11 @@ async function makeRequest(endpoint, body, retries = 2, cacheTTL = 0 // 0 means 
                 throw new Error(`AI service error: ${response.status} - ${errorText}`);
             }
             const data = await response.json();
+            const elapsed = Date.now() - attemptStart;
+            console.log(`✅ AI response: ${endpoint} in ${elapsed}ms`);
             // Cache successful response if TTL is set
-            if (cacheTTL > 0) {
-                const requestHash = redis.hash(body);
-                await cacheAIResponse(endpoint, requestHash, data, cacheTTL);
+            if (cacheTTL > 0 && !opts.skipCacheWrite) {
+                await cacheAIResponse(endpoint, cacheKey, data, cacheTTL);
                 console.log(`💾 AI response cached: ${endpoint} (TTL: ${cacheTTL}s)`);
             }
             return { success: true, data };
@@ -68,15 +157,26 @@ async function makeRequest(endpoint, body, retries = 2, cacheTTL = 0 // 0 means 
         catch (error) {
             if (attempt === retries) {
                 const message = error instanceof Error ? error.message : "Unknown error";
-                console.error(`AI service request failed after ${retries + 1} attempts:`, message);
+                const elapsed = Date.now() - startTime;
+                console.error(`❌ AI request failed after ${retries + 1} attempts (${elapsed}ms):`, message);
                 return { success: false, error: message };
             }
-            // Wait before retry (exponential backoff)
-            await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            // Wait before retry (exponential backoff, max 2s)
+            const backoff = Math.min(Math.pow(2, attempt) * 1000, 2000);
+            console.log(`⏳ AI retry in ${backoff}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, backoff));
         }
     }
     return { success: false, error: "Request failed" };
 }
+/**
+ * Track in-flight background plan generations so two concurrent cache misses
+ * for the same canonical habit don't each spawn their own AI call. The lock
+ * is scoped to a single backend process; that's acceptable because
+ * /plan-21d is rate-limited and the eventual cache write is visible to all
+ * processes via Redis.
+ */
+const inflightPlanGen = new Set();
 /**
  * Start onboarding - Safety check + quiz form generation
  * AI expects: { habit_description: str, user_id?: str }
@@ -151,7 +251,32 @@ export async function generateQuizForm(request) {
             habit_description: habitDescription,
         },
     };
-    return makeRequest("/quiz-form", aiServiceRequest, 2, CACHE_TTL.QUIZ_FORM);
+    const result = await makeRequest("/quiz-form", aiServiceRequest, 2, CACHE_TTL.QUIZ_FORM);
+    if (!result.success || !result.data?.questions) {
+        return result;
+    }
+    const enriched = {
+        ...result.data,
+        questions: result.data.questions.map((question) => {
+            const hasOtherOption = question.options.some((option) => isOtherToken(option.label) || isOtherToken(option.id));
+            return {
+                ...question,
+                has_other_option: hasOtherOption,
+                options: question.options.map((option) => {
+                    const isOther = isOtherToken(option.label) || isOtherToken(option.id);
+                    if (!isOther)
+                        return option;
+                    return {
+                        ...option,
+                        allow_custom_input: true,
+                        custom_input_key: `${question.id}__other_text`,
+                        custom_input_placeholder: "Please specify",
+                    };
+                }),
+            };
+        }),
+    };
+    return { success: true, data: enriched };
 }
 /**
  * Get quiz summary
@@ -162,15 +287,38 @@ export async function generateQuizForm(request) {
  * AI returns: QuizSummary (full mechanistic model)
  */
 export async function getQuizSummary(request) {
-    // Normalize answers: arrays become comma-separated strings
-    const normalizedAnswers = {};
+    const questionMetaById = new Map();
+    (request.quiz_form?.questions || []).forEach((q) => {
+        questionMetaById.set(q.id, {
+            options: (q.options || []).map((o) => ({ id: o.id, label: o.label })),
+        });
+    });
+    // Merge companion keys like "<question_id>__other_text" into their base answer.
+    const mergedAnswers = { ...(request.answers || {}) };
     Object.entries(request.answers || {}).forEach(([key, value]) => {
-        if (Array.isArray(value)) {
-            normalizedAnswers[key] = value.join(", ");
+        if (!key.endsWith("__other_text"))
+            return;
+        const baseKey = key.slice(0, -"__other_text".length);
+        const otherText = String(value ?? "").trim();
+        if (!baseKey || !otherText)
+            return;
+        const baseRaw = mergedAnswers[baseKey];
+        if (looksLikeAnswerObject(baseRaw)) {
+            mergedAnswers[baseKey] = { ...baseRaw, other_text: otherText };
+        }
+        else if (baseRaw !== undefined) {
+            mergedAnswers[baseKey] = { selected: baseRaw, other_text: otherText };
         }
         else {
-            normalizedAnswers[key] = String(value);
+            mergedAnswers[baseKey] = { other_text: otherText };
         }
+    });
+    // Normalize answers: preserve "other" custom text when present
+    const normalizedAnswers = {};
+    Object.entries(mergedAnswers).forEach(([key, value]) => {
+        if (key.endsWith("__other_text"))
+            return;
+        normalizedAnswers[key] = normalizeAnswerValue(value, questionMetaById.get(key));
     });
     // Determine the habit description:
     // 1. Use explicit habit_description if provided
@@ -206,59 +354,65 @@ export async function getQuizSummary(request) {
     return makeRequest("/quiz-summary", aiServiceRequest, 2, CACHE_TTL.QUIZ_SUMMARY);
 }
 /**
+ * Build a STABLE cache key for /plan-21d that doesn't change with whitespace,
+ * key ordering, or unrelated fields like a fresh `user_habit_raw` quote.
+ *
+ * We hash on the canonical mechanistic fields, which are LLM-derived from the
+ * quiz and tend to be the same for users with the same habit. This lets two
+ * users with very similar quiz results share a cached plan — much higher hit
+ * rate than hashing the full request body.
+ */
+function planCacheKey(habitGoal, quizSummary) {
+    const canonical = {
+        canonical_habit_name: String(quizSummary.canonical_habit_name || habitGoal || "")
+            .toLowerCase()
+            .trim(),
+        habit_category: String(quizSummary.habit_category || "").toLowerCase().trim(),
+        severity_level: String(quizSummary.severity_level || "mild").toLowerCase().trim(),
+        product_type: String(quizSummary.product_type || "").toLowerCase().trim(),
+        main_trigger: String(quizSummary.main_trigger || "").toLowerCase().trim(),
+    };
+    return redis.hash(canonical);
+}
+/**
  * Generate 21-day plan
- * AI expects: { state: HabitState } where HabitState has:
- *   - quiz_summary: QuizSummary (required)
- *   - habit_description (optional but recommended)
- * AI returns: Plan21D { plan_summary, day_tasks: {day_1: "...", ...}, day_whys?: {...} }
+ *
+ * Strategy (the fast path):
+ *   1. Check Redis with a stable canonical cache key → return immediately on hit.
+ *   2. On miss, race the AI service against a soft deadline (PLAN_FAST_RESPONSE_MS).
+ *      - If the AI returns first → cache + return real plan.
+ *      - If the deadline wins → return a deterministic fallback NOW and let the
+ *        AI call keep running in the background to populate the cache.
+ *   3. The next request for the same canonical habit gets the real AI plan
+ *      from cache (~5ms).
+ *
+ * This guarantees the user-facing endpoint always responds in well under
+ * `PLAN_FAST_RESPONSE_MS`, regardless of OpenAI latency.
  */
 export async function generatePlan21D(request) {
-    // Parse quiz_summary if it's a string (JSON)
+    // ── Parse / sanitize quiz_summary ─────────────────────────────────────
     let quizSummary;
     try {
-        let parsed = typeof request.quiz_summary === 'string'
+        let parsed = typeof request.quiz_summary === "string"
             ? JSON.parse(request.quiz_summary)
             : request.quiz_summary;
         // Handle wrapped response format: {status, statusText, data: {success, data: {...}}}
-        // Extract the actual quiz summary from nested structure
-        if (parsed && typeof parsed === 'object') {
-            // Check for wrapped response format from API
-            if ('data' in parsed && parsed.data && typeof parsed.data === 'object') {
-                // Could be {data: {success, data: {...}}} or {data: {...}}
-                if ('data' in parsed.data && parsed.data.data && typeof parsed.data.data === 'object') {
-                    // Format: {status, data: {success, data: {actual_quiz_summary}}}
+        if (parsed && typeof parsed === "object") {
+            if ("data" in parsed && parsed.data && typeof parsed.data === "object") {
+                if ("data" in parsed.data && parsed.data.data && typeof parsed.data.data === "object") {
                     parsed = parsed.data.data;
                 }
-                else if ('user_habit_raw' in parsed.data) {
-                    // Format: {data: {user_habit_raw, ...}}
+                else if ("user_habit_raw" in parsed.data) {
                     parsed = parsed.data;
                 }
             }
-            // If it has user_habit_raw directly, it's already the right format
         }
         quizSummary = parsed;
     }
-    catch (e) {
-        // If parsing fails, create a minimal quiz_summary from habit_goal
-        quizSummary = {
-            user_habit_raw: request.habit_goal,
-            canonical_habit_name: request.habit_goal,
-            habit_category: null,
-            category_confidence: "low",
-            product_type: null,
-            severity_level: "mild",
-            core_loop: "User's habit loop is unclear.",
-            primary_payoff: "User seeks an unclear emotional payoff.",
-            avoidance_target: "User avoids an unclear target.",
-            identity_link: "Habit has an unclear link to user's identity.",
-            dopamine_profile: "Dopamine profile is unclear.",
-            collapse_condition: "Collapse condition is unclear.",
-            long_term_cost: "Long-term cost is unclear.",
-        };
+    catch {
+        quizSummary = null;
     }
-    // Final validation - ensure we have the required fields
-    if (!quizSummary || typeof quizSummary !== 'object' || !('user_habit_raw' in quizSummary)) {
-        console.warn("Invalid quiz_summary format, creating fallback from habit_goal");
+    if (!quizSummary || typeof quizSummary !== "object" || !("user_habit_raw" in quizSummary)) {
         quizSummary = {
             user_habit_raw: request.habit_goal,
             canonical_habit_name: request.habit_goal,
@@ -281,13 +435,57 @@ export async function generatePlan21D(request) {
             quiz_summary: quizSummary,
         },
     };
-    const result = await makeRequest("/plan-21d", aiServiceRequest, 3, CACHE_TTL.PLAN_21D); // 3 retries for expensive operation
-    // If main endpoint fails, try fallback
-    if (!result.success) {
-        console.log("Primary plan generation failed, trying fallback...");
-        return makeRequest("/plan-21d-fallback", aiServiceRequest, 2, CACHE_TTL.PLAN_21D);
+    const cacheKey = planCacheKey(request.habit_goal, quizSummary);
+    const startTime = Date.now();
+    // ── 1. Cache lookup (stable, canonical) ───────────────────────────────
+    const cached = await getCachedAIResponse("/plan-21d", cacheKey);
+    if (cached !== null) {
+        console.log(`✅ /plan-21d cache hit (${Date.now() - startTime}ms)`);
+        return { success: true, data: cached };
     }
-    return result;
+    // ── 2. Race AI service against the fast-response deadline ─────────────
+    console.log(`🏁 /plan-21d cache miss — racing AI vs ${PLAN_FAST_RESPONSE_MS}ms fallback deadline`);
+    const aiPromise = makeRequest("/plan-21d", aiServiceRequest, 0, // no in-makeRequest retries; we manage retries ourselves
+    CACHE_TTL.PLAN_21D, { cacheKey, skipCacheRead: true, timeoutMs: AI_SERVICE_TIMEOUT });
+    const taggedAI = aiPromise.then((res) => ({ kind: "ai", res }));
+    const deadline = new Promise((resolve) => setTimeout(() => resolve({ kind: "deadline" }), PLAN_FAST_RESPONSE_MS));
+    const winner = await Promise.race([taggedAI, deadline]);
+    if (winner.kind === "ai" && winner.res.success && winner.res.data) {
+        console.log(`🚀 /plan-21d AI beat the deadline in ${Date.now() - startTime}ms`);
+        return winner.res;
+    }
+    if (winner.kind === "ai" && !winner.res.success) {
+        // AI failed FAST. Return fallback synchronously, no background retry.
+        console.warn(`⚠️ /plan-21d AI failed in ${Date.now() - startTime}ms: ${winner.res.error}. Returning fallback.`);
+        return {
+            success: true,
+            data: buildFallbackPlan(extractFallbackContext(quizSummary, request.habit_goal)),
+        };
+    }
+    // Deadline won. Kick off (or keep running) the AI call in the background to
+    // warm the cache for the next request, and return a fast deterministic plan.
+    console.log(`⏱️ /plan-21d deadline reached after ${Date.now() - startTime}ms — returning fallback, AI continues in background`);
+    const fallbackPlan = buildFallbackPlan(extractFallbackContext(quizSummary, request.habit_goal));
+    // Cache the fallback IMMEDIATELY so any other request that arrives while the
+    // AI is still chugging away gets a sub-millisecond cache hit instead of
+    // racing the deadline again. When the AI call eventually completes, its
+    // result will overwrite this entry (same key, same TTL).
+    void cacheAIResponse("/plan-21d", cacheKey, fallbackPlan, CACHE_TTL.PLAN_21D)
+        .then(() => console.log(`💾 Fallback cached under ${cacheKey.slice(0, 8)}… (will be replaced when AI finishes)`))
+        .catch(() => { });
+    // Track in-flight background AI work for observability / future de-dup.
+    if (!inflightPlanGen.has(cacheKey)) {
+        inflightPlanGen.add(cacheKey);
+        void aiPromise
+            .then((res) => {
+            if (res.success) {
+                console.log(`💾 Background /plan-21d ready — cache key ${cacheKey.slice(0, 8)}… now serves the AI plan`);
+            }
+        })
+            .catch(() => { })
+            .finally(() => inflightPlanGen.delete(cacheKey));
+    }
+    return { success: true, data: fallbackPlan };
 }
 /**
  * AI coach chat

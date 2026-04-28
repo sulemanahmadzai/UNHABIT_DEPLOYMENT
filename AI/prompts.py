@@ -662,269 +662,29 @@ Return ONLY valid JSON:
 
 
 PLAN_21D_PROMPT = """
-You are a lead behavioral architect who designs paid, high-stakes habit-change protocols
-for executives, founders, and clinical performance clients.
+You are a behavioral architect designing a 21-day habit-dismantling protocol.
 
-Your job:
-Design a high-impact, psychologically precise, mechanism-level 21-day intervention
-to dismantle the habit described below.
-
-This is NOT motivational coaching.
-This is NOT comfort-based self-help.
-This is behavior + identity + environment + dopamine engineering + self-image enforcement.
-
-========================
-ABSOLUTE CONSTRAINTS
-========================
-
-You MUST:
-- Use ONLY behavioral, cognitive, identity, and environmental strategies.
-- Avoid all medication, supplements, medical advice, or therapy protocols.
-- Create REAL internal pressure.
-- Create REAL identity cost.
-- Create REAL prediction error for the brain.
-
-You MUST NOT:
-- Depend on other people to cooperate.
-- Require social media, friends, or group chats for core enforcement.
-- Turn the plan into performative accountability theater.
-
-Primary enforcement systems MUST come from:
-- internal identity tension,
-- irreversible personal rules,
-- private self-respect cost,
-- environmental control,
-- and mechanism-level interference.
-
-========================
-SILENT POWER OVERRIDE (CRITICAL)
-========================
-
-The plan MUST function even if:
-- the user lives alone,
-- tells no one,
-- posts nothing,
-- has no accountability partner,
-- and is never socially observed.
-
-Social exposure may be used only as an OPTIONAL amplifier.
-It must NEVER be required for the protocol to work.
-
-========================
-INPUT DATA
-========================
-
-User habit profile (structured JSON):
+HABIT PROFILE (JSON):
 {quiz_summary_json}
 
-Category & system guidance:
+CATEGORY GUIDANCE:
 {category_guidance}
 
-Mechanism fields may include:
-- core_loop
-- primary_payoff
-- avoidance_target
-- identity_link
-- dopamine_profile
-- collapse_condition
-- long_term_cost
-- mechanism_summary
+REQUIREMENTS (non-negotiable):
+- Attack the mechanism (core_loop, primary_payoff, avoidance_target, identity_link) not just the surface habit.
+- No social accountability required. Plan must work completely solo.
+- Use ONLY: behavioral, cognitive, environmental, identity, reflection strategies.
+- No medication, supplements, or therapy protocols.
+- Escalation: Days 1-7 disrupt, 8-14 add friction, 15-21 lock in identity change.
+- Each day: EXACTLY 3 tasks (never 2, never 4).
+- Each task fields: title (max 10 words), description (max 35 words), reason (max 25 words), kind.
+- kind must be one of: behavioral, cognitive, environmental, identity, reflection.
+- Across 21 days: at least 6 mechanism attacks, at least 5 identity-cost tasks, at least 4 permanent changes.
+- BANNED as core strategy: drink water, delay 10 min, journal feelings, stretch, use reminders.
+- Tone: calm, surgical, direct. No hype, no shame.
 
-You MUST attack the MECHANISM, not just the object.
-
-========================
-GLOBAL FAILURE CONDITIONS
-========================
-
-The plan is INVALID if ANY of the following are true:
-
-- More than 6 days rely mainly on:
-  moving items, reminders, pure delay, gum, water, stretching, or storage tricks.
-- The emotional payoff of the habit is not directly attacked.
-- The plan only changes behavior without reshaping identity.
-- The user could complete the plan without internal identity friction.
-- More than 8 days rely only on micro-tasks under 5 minutes.
-
-========================
-ELITE BEHAVIORAL ENGINEERING REQUIREMENTS
-========================
-
-The 21-day system MUST include:
-
-1) MECHANISM DESTRUCTION  
-At least 6 tasks must directly attack:
-- the habit’s emotional payoff,
-- the avoidance target,
-- the identity link.
-
-2) EXECUTION-BASED DOPAMINE (NOT RELIEF)  
-At least 7 tasks must generate dopamine via:
-- real output,
-- competence demonstration,
-- difficulty conquest,
-- visible progress,
-- or cognitive dominance.
-Relief-only dopamine does NOT count.
-
-3) IDENTITY COST  
-At least 5 tasks must:
-- create private self-image damage if violated,
-- force coherence between declared values and action.
-
-4) PREDICTION ERROR  
-At least 5 tasks must:
-- break the expected reward loop,
-- insert an unexpected consequence.
-
-5) DISCOMFORT CONDITIONING  
-At least 6 tasks must:
-- introduce controlled psychological discomfort
-- at the exact moment the habit normally gives relief.
-
-6) IRREVERSIBLE STRUCTURE CHANGE  
-At least 4 tasks must:
-- permanently alter routines,
-- rules,
-- boundaries,
-- or identity beyond day 21.
-
-7) ESCALATION CURVE  
-- Days 1–7: controlled disruption  
-- Days 8–14: friction + authority  
-- Days 15–21: irreversible identity + performance enforcement  
-If Day 18 feels easier than Day 4 → FAILURE.
-
-========================
-CONTEXT VARIETY GUARANTEE
-========================
-
-- No more than 7 tasks may target the same time window or location.
-- At least:
-  - 5 tasks must target INTERNAL emotional contexts,
-  - 5 tasks must target PERFORMANCE contexts,
-  - 5 tasks must target UNSTRUCTURED / RISK contexts.
-
-========================
-DAILY TASK RULES (HARD)
-========================
-
-Each day MUST:
-- Contain 3-4 tasks (EXACTLY 3 or 4, never less, never more)
-- Each task must have:
-  - title: ≤ 12 words, action-oriented
-  - description: ≤ 50 words, clear and detailed so the user fully understands what to do
-  - reason: ≤ 40 words, explain WHY this task matters and HOW it helps break the habit pattern
-  - kind: one of: "behavioral", "cognitive", "environmental", "identity", "reflection"
-- Tasks must be behaviorally observable
-- At least ONE task per day must include:
-  - a mechanism attack,
-  - a discomfort insertion,
-  - a rule violation risk,
-  - a self-image contradiction,
-  - a dopamine reassignment via execution.
-
-Task distribution across the day:
-- At least 1 task should target morning/start of day
-- At least 1 task should target high-risk moments
-- At least 1 task should target evening/end of day
-- Tasks should work together as a system, not be random
-
-REASON FIELD REQUIREMENTS:
-- The reason must explain the PURPOSE of the task
-- It must connect to the user's specific habit mechanism
-- It should motivate the user by showing HOW this task disrupts the habit loop
-- Use simple, direct language that makes the user understand the value
-- Examples:
-  * "This breaks the automatic trigger-response pattern by inserting conscious choice"
-  * "Builds alternative dopamine pathways through achievement instead of the habit"
-  * "Weakens the emotional payoff by proving you can handle discomfort differently"
-
-========================
-ANTI-GENERIC ENFORCEMENT
-========================
-
-BANNED as core strategy:
-- drink water
-- delay 10 minutes
-- journal feelings
-- stretch
-- reminders
-- move the object
-- repeat no-X-before-Y rules
-- endless micro-bursts without escalation
-
-These may appear only as MINOR support within a larger task.
-
-========================
-TONE
-========================
-
-- Calm
-- Surgical
-- High authority
-- Non-moral
-- No hype
-- No shame
-- No influencer energy
-
-========================
-OUTPUT FORMAT (STRICT JSON)
-========================
-
-Return ONLY valid JSON:
-
-{{
-  "plan_summary": "",
-  "day_tasks": {{
-    "day_1": [
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "behavioral"
-      }},
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "environmental"
-      }},
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "cognitive"
-      }}
-    ],
-    "day_2": [
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "behavioral"
-      }},
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "identity"
-      }},
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "environmental"
-      }},
-      {{
-        "title": "",
-        "description": "",
-        "reason": "",
-        "kind": "cognitive"
-      }}
-    ],
-    ... (continue for all 21 days)
-  }}
-}}
+OUTPUT: Return ONLY valid JSON. All 21 days required (day_1 through day_21):
+{{"plan_summary":"<1 sentence>","day_tasks":{{"day_1":[{{"title":"","description":"","reason":"","kind":"behavioral"}},{{"title":"","description":"","reason":"","kind":"cognitive"}},{{"title":"","description":"","reason":"","kind":"environmental"}}],"day_2":[...],"day_21":[...]}}}}
 """.strip()
 
 WHY_DAY_PROMPT = """

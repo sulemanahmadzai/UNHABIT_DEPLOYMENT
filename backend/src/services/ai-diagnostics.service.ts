@@ -105,7 +105,7 @@ export async function storeQuizSummary(
   userHabitId: string | undefined,
   rawInput: string,
   quizSummary: QuizSummaryData,
-  userAnswers?: Record<string, string>
+  userAnswers?: Record<string, unknown>
 ) {
   // Extract severity and confidence as scores
   const scores: Record<string, unknown> = {

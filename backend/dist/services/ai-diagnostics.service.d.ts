@@ -76,7 +76,7 @@ export declare function storeQuizForm(userId: string, userHabitId: string | unde
 /**
  * Store quiz summary data
  */
-export declare function storeQuizSummary(userId: string, userHabitId: string | undefined, rawInput: string, quizSummary: QuizSummaryData, userAnswers?: Record<string, string>): Promise<{
+export declare function storeQuizSummary(userId: string, userHabitId: string | undefined, rawInput: string, quizSummary: QuizSummaryData, userAnswers?: Record<string, unknown>): Promise<{
     user_id: string;
     created_at: Date;
     id: string;

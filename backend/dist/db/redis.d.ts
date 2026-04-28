@@ -55,7 +55,15 @@ declare class RedisService {
      */
     expire(key: string, seconds: number): Promise<boolean>;
     /**
-     * Hash a value for deterministic cache keys
+     * Hash a value for deterministic cache keys.
+     *
+     * IMPORTANT: object keys are sorted recursively before stringifying so that
+     *   { a: 1, b: 2 }   and   { b: 2, a: 1 }
+     * produce the SAME hash. Previously this used plain JSON.stringify, which
+     * meant any whitespace difference or key reordering caused cache misses on
+     * payloads that were semantically identical (e.g. for /plan-21d this could
+     * make two equivalent requests miss the cache and re-trigger an expensive
+     * LLM call).
      */
     hash(value: any): string;
     /**

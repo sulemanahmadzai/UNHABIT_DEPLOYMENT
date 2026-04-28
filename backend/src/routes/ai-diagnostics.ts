@@ -5,6 +5,26 @@ import * as AIDiagnosticsService from "../services/ai-diagnostics.service.js";
 import { isValidUUID } from "../utils/validation.js";
 
 const r = Router();
+const diagnosticAnswerObjectSchema: z.ZodType<Record<string, unknown>> = z
+  .object({
+    value: z.union([z.string(), z.array(z.string())]).optional(),
+    selected: z.union([z.string(), z.array(z.string())]).optional(),
+    option_id: z.string().optional(),
+    option_ids: z.array(z.string()).optional(),
+    other_text: z.string().max(500).optional(),
+    otherText: z.string().max(500).optional(),
+    custom_input: z.string().max(500).optional(),
+    customInput: z.string().max(500).optional(),
+  })
+  .passthrough();
+
+const diagnosticAnswerValueSchema: z.ZodType<unknown> = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+  diagnosticAnswerObjectSchema,
+]);
 
 /**
  * POST /api/ai-diagnostics/quiz-form
@@ -71,7 +91,7 @@ r.post("/quiz-summary", requireAuth, async (req, res, next) => {
         collapse_condition: z.string().optional(),
         long_term_cost: z.string().optional(),
       }),
-      user_answers: z.record(z.string(), z.string()).optional(),
+      user_answers: z.record(z.string(), diagnosticAnswerValueSchema).optional(),
     });
     const data = schema.parse(req.body);
 

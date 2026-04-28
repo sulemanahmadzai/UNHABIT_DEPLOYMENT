@@ -113,11 +113,19 @@ export async function checkRateLimit(
  * Rate limit configurations for different endpoints
  */
 export const RATE_LIMITS = {
-  // AI endpoints (expensive)
-  AI_ONBOARDING: { maxRequests: 5, windowSeconds: 3600 }, // 5 per hour
-  AI_QUIZ: { maxRequests: 10, windowSeconds: 3600 }, // 10 per hour
-  AI_PLAN: { maxRequests: 3, windowSeconds: 3600 }, // 3 per hour
-  AI_COACH: { maxRequests: 30, windowSeconds: 3600 }, // 30 per hour
+  // AI endpoints (expensive on cache miss, but cache hits are basically free).
+  // Limits are intentionally generous: the backend uses Redis caching plus
+  // stale-while-revalidate for /plan-21d, so most calls cost ~5ms not ~30s.
+  // The previous 3/hour was so tight users were getting 429s during normal
+  // retry behaviour, which the FE team flagged as "errors after a long wait".
+  AI_ONBOARDING: { maxRequests: 15, windowSeconds: 3600 }, // 15 per hour
+  AI_QUIZ: { maxRequests: 30, windowSeconds: 3600 }, // 30 per hour
+  // Keep /plan-21d permissive because:
+  // 1) cache hits are very cheap,
+  // 2) we now return fast fallback <10s on miss,
+  // 3) strict limits were causing frontend-visible 429s (false "errors").
+  AI_PLAN: { maxRequests: 300, windowSeconds: 3600 }, // effectively 5/min per user
+  AI_COACH: { maxRequests: 60, windowSeconds: 3600 }, // 60 per hour
 
   // Auth endpoints
   AUTH_LOGIN: { maxRequests: 5, windowSeconds: 300, blockDurationSeconds: 900 }, // 5 per 5min, block 15min

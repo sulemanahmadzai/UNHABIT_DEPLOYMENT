@@ -6,6 +6,25 @@ import * as AIClient from "../services/ai-client.service.js";
 
 const r = Router();
 
+const quizAnswerObjectSchema = z
+  .object({
+    value: z.union([z.string(), z.array(z.string())]).optional(),
+    selected: z.union([z.string(), z.array(z.string())]).optional(),
+    option_id: z.string().optional(),
+    option_ids: z.array(z.string()).optional(),
+    other_text: z.string().max(500).optional(),
+    otherText: z.string().max(500).optional(),
+    custom_input: z.string().max(500).optional(),
+    customInput: z.string().max(500).optional(),
+  })
+  .passthrough();
+
+const quizAnswerSchema = z.union([
+  z.string(),
+  z.array(z.string()),
+  quizAnswerObjectSchema,
+]);
+
 /**
  * POST /api/ai/onboarding/start
  * Start onboarding (proxies to AI service)
@@ -127,7 +146,7 @@ r.post("/quiz-form", requireAuth, rateLimiters.aiQuiz, async (req, res, next) =>
 r.post("/quiz-summary", requireAuth, rateLimiters.aiQuiz, async (req, res, next) => {
   try {
     const schema = z.object({
-      answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+      answers: z.record(z.string(), quizAnswerSchema),
       habit_category: z.string().min(1),
       habit_description: z.string().optional(),
       quiz_form: z.object({
@@ -147,7 +166,7 @@ r.post("/quiz-summary", requireAuth, rateLimiters.aiQuiz, async (req, res, next)
     const data = schema.parse(req.body);
 
     const result = await AIClient.getQuizSummary({
-      answers: data.answers as Record<string, string | string[]>,
+      answers: data.answers as AIClient.QuizSummaryRequest["answers"],
       habit_category: data.habit_category,
       habit_description: data.habit_description,
       quiz_form: data.quiz_form,
