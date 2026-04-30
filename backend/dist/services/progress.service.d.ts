@@ -13,12 +13,12 @@ interface SlipData {
  * Mark a task as completed
  */
 export declare function completeTask(userId: string, taskId: string): Promise<{
-    user_id: string;
-    created_at: Date;
     id: string;
-    status: string;
+    user_id: string;
     journey_task_id: string;
+    status: string;
     completed_at: Date | null;
+    created_at: Date;
 } | null>;
 /**
  * Mark a task as not completed (undo)

@@ -1,5 +1,11 @@
 import { db } from "../lib/services.js";
 import { Prisma } from "@prisma/client";
+import {
+  getCachedBadgeGallery,
+  cacheBadgeGallery,
+  getCachedLevelInfo,
+  cacheLevelInfo,
+} from "./cache.service.js";
 
 /**
  * Get point balance for a user
@@ -221,9 +227,12 @@ export async function getTodayXP(userId: string) {
 }
 
 /**
- * Get user level and progress
+ * Get user level and progress (cached for 120 s)
  */
 export async function getLevelInfo(userId: string) {
+  const cached = await getCachedLevelInfo(userId);
+  if (cached) return cached;
+
   const balance = await db.point_balances.findUnique({
     where: { user_id: userId },
   });
@@ -231,7 +240,6 @@ export async function getLevelInfo(userId: string) {
   const totalXP = Number(balance?.total_points ?? 0);
   const levelInfo = calculateLevel(totalXP);
 
-  // Get level milestones
   const milestones = [
     { level: 5, reward: "Silver Badge Frame" },
     { level: 10, reward: "Gold Badge Frame" },
@@ -241,7 +249,7 @@ export async function getLevelInfo(userId: string) {
 
   const nextMilestone = milestones.find(m => m.level > levelInfo.level);
 
-  return {
+  const info = {
     level: levelInfo.level,
     total_xp: totalXP,
     current_level_xp: levelInfo.currentLevelXP,
@@ -250,12 +258,20 @@ export async function getLevelInfo(userId: string) {
     progress_percent: levelInfo.progress,
     next_milestone: nextMilestone,
   };
+
+  // Cache for 120 s (fire-and-forget)
+  cacheLevelInfo(userId, info, 120).catch(() => {});
+
+  return info;
 }
 
 /**
- * Get badge gallery with progress
+ * Get badge gallery with progress (cached for 60 s to avoid expensive perfect-day scan)
  */
 export async function getBadgeGallery(userId: string) {
+  const cached = await getCachedBadgeGallery(userId);
+  if (cached) return cached;
+
   const [
     allBadges,
     earnedBadges,
@@ -364,48 +380,43 @@ export async function getBadgeGallery(userId: string) {
   const earnedBadgesList = badges.filter(b => b.earned);
   const lockedBadges = badges.filter(b => !b.earned).sort((a, b) => b.progress - a.progress);
 
-  return {
+  const gallery = {
     earned: earnedBadgesList,
     locked: lockedBadges,
     total_earned: earnedBadgesList.length,
     total_available: badges.length,
   };
+
+  // Cache for 60 s (fire-and-forget)
+  cacheBadgeGallery(userId, gallery, 60).catch(() => {});
+
+  return gallery;
 }
 
 /**
  * Count days where every journey task for that day has status "completed".
- * Used for "perfect_days" / "perfect_week" badge progress calculations.
+ * Uses a single SQL query instead of loading all rows into JS memory.
  */
 async function countPerfectDays(userId: string): Promise<number> {
-  const journeyDays = await db.journey_days.findMany({
-    where: {
-      journeys: {
-        user_id: userId,
-      },
-    },
-    include: {
-      journey_tasks: {
-        include: {
-          user_task_progress: {
-            where: { user_id: userId },
-          },
-        },
-      },
-    },
-  });
-
-  let perfectDays = 0;
-  for (const day of journeyDays) {
-    if (day.journey_tasks.length === 0) continue;
-
-    const allCompleted = day.journey_tasks.every(task =>
-      task.user_task_progress.some(p => p.status === "completed")
-    );
-
-    if (allCompleted) perfectDays++;
-  }
-
-  return perfectDays;
+  const result = await db.$queryRaw<[{ perfect_days: bigint }]>`
+    SELECT COUNT(DISTINCT jd.id)::bigint AS perfect_days
+    FROM journey_days jd
+    INNER JOIN journeys j ON j.id = jd.journey_id AND j.user_id = ${userId}::uuid
+    WHERE (
+      SELECT COUNT(*) FROM journey_tasks jt WHERE jt.journey_day_id = jd.id
+    ) > 0
+    AND NOT EXISTS (
+      SELECT 1 FROM journey_tasks jt
+      WHERE jt.journey_day_id = jd.id
+      AND NOT EXISTS (
+        SELECT 1 FROM user_task_progress utp
+        WHERE utp.journey_task_id = jt.id
+          AND utp.user_id = ${userId}::uuid
+          AND utp.status = 'completed'
+      )
+    )
+  `;
+  return Number(result[0]?.perfect_days ?? 0);
 }
 
 /**

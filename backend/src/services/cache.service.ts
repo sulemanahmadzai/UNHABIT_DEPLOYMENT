@@ -179,3 +179,45 @@ export async function getCachedAnalytics(userId: string, type: string): Promise<
 export async function invalidateUserAnalytics(userId: string): Promise<void> {
   await redis.delPattern(`analytics:${userId}:*`);
 }
+
+/**
+ * Cache badge gallery data (computed per user, short TTL to balance freshness/speed)
+ */
+export async function cacheBadgeGallery(userId: string, data: any, ttl = 60): Promise<void> {
+  await redis.set(`badge_gallery:${userId}`, data, ttl);
+}
+
+/**
+ * Get cached badge gallery
+ */
+export async function getCachedBadgeGallery(userId: string): Promise<any | null> {
+  return redis.get(`badge_gallery:${userId}`);
+}
+
+/**
+ * Invalidate badge gallery cache (call after earning a badge or completing tasks)
+ */
+export async function invalidateBadgeGallery(userId: string): Promise<void> {
+  await redis.del(`badge_gallery:${userId}`);
+}
+
+/**
+ * Cache level/XP info (changes only when points are awarded)
+ */
+export async function cacheLevelInfo(userId: string, data: any, ttl = 120): Promise<void> {
+  await redis.set(`level_info:${userId}`, data, ttl);
+}
+
+/**
+ * Get cached level info
+ */
+export async function getCachedLevelInfo(userId: string): Promise<any | null> {
+  return redis.get(`level_info:${userId}`);
+}
+
+/**
+ * Invalidate level info cache (call after awarding points)
+ */
+export async function invalidateLevelInfo(userId: string): Promise<void> {
+  await redis.del(`level_info:${userId}`);
+}

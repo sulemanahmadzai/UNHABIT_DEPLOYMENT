@@ -633,6 +633,8 @@ model buddy_links {
   buddy_nudges                    buddy_nudges[]
 
   @@unique([user_a, user_b])
+  @@index([user_a, status], map: "idx_buddylinks_user_a_status")
+  @@index([user_b, status], map: "idx_buddylinks_user_b_status")
   @@schema("public")
 }
 
@@ -1355,6 +1357,8 @@ model user_task_progress {
   @@unique([user_id, journey_task_id])
   @@index([user_id], map: "idx_taskprog_user")
   @@index([journey_task_id], map: "idx_user_taskprog_task")
+  @@index([user_id, status, completed_at], map: "idx_taskprog_user_status_completed")
+  @@index([status, completed_at], map: "idx_taskprog_status_completed")
   @@schema("public")
 }
 

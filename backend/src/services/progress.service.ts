@@ -18,41 +18,34 @@ interface SlipData {
  * Mark a task as completed
  */
 export async function completeTask(userId: string, taskId: string) {
-  // Verify task exists and user owns the journey
-  const task = await db.journey_tasks.findFirst({
-    where: { id: taskId },
-    include: {
-      journey_days: {
-        include: {
-          journeys: true,
-        },
-      },
-    },
-  });
+  // Single DB round-trip:
+  // - verifies task ownership through journey -> user
+  // - inserts or updates completion state atomically
+  const rows = await db.$queryRaw<
+    Array<{
+      id: string;
+      user_id: string;
+      journey_task_id: string;
+      status: string;
+      completed_at: Date | null;
+      created_at: Date;
+    }>
+  >`
+    INSERT INTO user_task_progress (user_id, journey_task_id, status, completed_at)
+    SELECT ${userId}::uuid, jt.id, 'completed', NOW()
+    FROM journey_tasks jt
+    INNER JOIN journey_days jd ON jd.id = jt.journey_day_id
+    INNER JOIN journeys j ON j.id = jd.journey_id
+    WHERE jt.id = ${taskId}::uuid
+      AND j.user_id = ${userId}::uuid
+    ON CONFLICT (user_id, journey_task_id)
+    DO UPDATE SET
+      status = 'completed',
+      completed_at = NOW()
+    RETURNING id, user_id, journey_task_id, status, completed_at, created_at
+  `;
 
-  if (!task || task.journey_days.journeys.user_id !== userId) {
-    return null;
-  }
-
-  // Create or update task progress
-  return db.user_task_progress.upsert({
-    where: {
-      user_id_journey_task_id: {
-        user_id: userId,
-        journey_task_id: taskId,
-      },
-    },
-    create: {
-      user_id: userId,
-      journey_task_id: taskId,
-      status: "completed",
-      completed_at: new Date(),
-    },
-    update: {
-      status: "completed",
-      completed_at: new Date(),
-    },
-  });
+  return rows[0] ?? null;
 }
 
 /**

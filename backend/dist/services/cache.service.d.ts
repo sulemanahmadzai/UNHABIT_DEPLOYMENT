@@ -79,4 +79,28 @@ export declare function getCachedAnalytics(userId: string, type: string): Promis
  * Invalidate user's analytics cache
  */
 export declare function invalidateUserAnalytics(userId: string): Promise<void>;
+/**
+ * Cache badge gallery data (computed per user, short TTL to balance freshness/speed)
+ */
+export declare function cacheBadgeGallery(userId: string, data: any, ttl?: number): Promise<void>;
+/**
+ * Get cached badge gallery
+ */
+export declare function getCachedBadgeGallery(userId: string): Promise<any | null>;
+/**
+ * Invalidate badge gallery cache (call after earning a badge or completing tasks)
+ */
+export declare function invalidateBadgeGallery(userId: string): Promise<void>;
+/**
+ * Cache level/XP info (changes only when points are awarded)
+ */
+export declare function cacheLevelInfo(userId: string, data: any, ttl?: number): Promise<void>;
+/**
+ * Get cached level info
+ */
+export declare function getCachedLevelInfo(userId: string): Promise<any | null>;
+/**
+ * Invalidate level info cache (call after awarding points)
+ */
+export declare function invalidateLevelInfo(userId: string): Promise<void>;
 //# sourceMappingURL=cache.service.d.ts.map

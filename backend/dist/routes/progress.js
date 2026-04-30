@@ -8,6 +8,7 @@ import { getSettingValue } from "../services/admin.service.js";
 import { notifyDailyCompletion } from "../services/notification-events.service.js";
 import * as Scenarios from "../services/notification-scenarios.service.js";
 import { db } from "../lib/services.js";
+import { invalidateDashboard } from "../services/cache.service.js";
 function calculateLevel(totalXP) {
     let level = 1;
     let xpRequired = 0;
@@ -26,54 +27,59 @@ const r = Router();
  */
 r.post("/tasks/:taskId/complete", requireAuth, async (req, res, next) => {
     try {
+        const userId = req.user.id;
         const taskId = req.params.taskId;
         if (!taskId) {
             return res.status(400).json({ success: false, error: "Task ID is required" });
         }
-        const result = await ProgressService.completeTask(req.user.id, taskId);
+        const result = await ProgressService.completeTask(userId, taskId);
         if (!result) {
             return res.status(404).json({ success: false, error: "Task not found" });
         }
-        // Capture level before awarding XP (for level-up detection)
-        const balanceBefore = await db.point_balances.findUnique({ where: { user_id: req.user.id } });
-        const levelBefore = calculateLevel(Number(balanceBefore?.total_points ?? 0));
-        // Award XP for task completion
-        const xpPerTask = await getSettingValue("xp_per_task_completion", 10);
-        await RewardsService.awardPoints(req.user.id, xpPerTask);
-        // Check and award badges + update streak
-        const badgeResult = await BadgeAwardingService.onTaskCompleted(req.user.id, taskId);
-        // Fire-and-forget: streak, XP, level-up, share notifications
+        // Invalidate dashboard cache so next load reflects the new completion
+        invalidateDashboard(userId).catch(() => { });
+        // Respond immediately after task-state write. All heavier side effects
+        // (XP, streak, badges, notifications) run in the background.
+        res.json({
+            success: true,
+            data: result,
+            xp_earned: 10,
+            streak_updated: true,
+            new_badges: [],
+        });
+        // --- Background work (does NOT block the response) ---
         (async () => {
             try {
+                const xpPerTask = await getSettingValue("xp_per_task_completion", 10);
+                await RewardsService.awardPoints(userId, xpPerTask);
+                // Capture level before badge/streak side-effects
+                const balanceBefore = await db.point_balances.findUnique({ where: { user_id: userId } });
+                const levelBefore = calculateLevel(Number(balanceBefore?.total_points ?? 0));
+                // Update streak + check/award badges
+                await BadgeAwardingService.onTaskCompleted(userId, taskId);
+                // Invalidate badge-stats cache so the next checkAndAward gets fresh data
+                await BadgeAwardingService.invalidateUserStatsCache(userId);
+                await invalidateDashboard(userId);
                 const streak = await db.streaks.findFirst({
-                    where: { user_id: req.user.id, kind: "task_completion" },
+                    where: { user_id: userId, kind: "task_completion" },
                 });
                 const len = streak?.current_length ?? 0;
                 if ([7, 14, 21].includes(len)) {
-                    await Scenarios.notifyStreakMilestone(req.user.id, len);
-                    await Scenarios.notifySharePrompt(req.user.id);
+                    await Scenarios.notifyStreakMilestone(userId, len);
+                    await Scenarios.notifySharePrompt(userId);
                 }
                 else if (len >= 2 && len < 7) {
-                    await Scenarios.notifyMicroStreak(req.user.id, len);
+                    await Scenarios.notifyMicroStreak(userId, len);
                 }
-                // XP earned notification (only for meaningful amounts)
-                await Scenarios.notifyXpEarned(req.user.id, xpPerTask);
-                // Level-up detection
-                const balanceAfter = await db.point_balances.findUnique({ where: { user_id: req.user.id } });
+                await Scenarios.notifyXpEarned(userId, xpPerTask);
+                const balanceAfter = await db.point_balances.findUnique({ where: { user_id: userId } });
                 const levelAfter = calculateLevel(Number(balanceAfter?.total_points ?? 0));
                 if (levelAfter > levelBefore) {
-                    await Scenarios.notifyLevelUp(req.user.id, levelAfter);
+                    await Scenarios.notifyLevelUp(userId, levelAfter);
                 }
             }
             catch { }
         })();
-        res.json({
-            success: true,
-            data: result,
-            xp_earned: xpPerTask,
-            streak_updated: badgeResult.streak_updated,
-            new_badges: badgeResult.new_badges,
-        });
     }
     catch (error) {
         next(error);
@@ -237,6 +243,8 @@ r.get("/today", requireAuth, async (req, res, next) => {
 r.post("/complete-day", requireAuth, async (req, res, next) => {
     try {
         const result = await ProgressService.completeDayTasks(req.user.id);
+        // Invalidate dashboard cache so next load reflects all completed tasks
+        invalidateDashboard(req.user.id).catch(() => { });
         // Best-effort push: completion reinforcement + streak check + post-21 check
         (async () => {
             try {

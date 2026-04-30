@@ -324,37 +324,29 @@ async function getNextBadge(userId: string) {
 }
 
 /**
- * Calculate habit health based on task completion rate
+ * Calculate habit health based on task completion rate.
+ * Uses two COUNT queries instead of loading every row into JS memory.
  */
 async function calculateHabitHealth(userId: string, journeyId: string): Promise<number> {
-  // Get all tasks for this journey
-  const journeyDays = await prisma.journey_days.findMany({
-    where: { journey_id: journeyId },
-    include: {
-      journey_tasks: {
-        include: {
-          user_task_progress: {
-            where: { user_id: userId },
-          },
+  const [total, completed] = await Promise.all([
+    prisma.journey_tasks.count({
+      where: {
+        journey_days: { journey_id: journeyId },
+      },
+    }),
+    prisma.user_task_progress.count({
+      where: {
+        user_id: userId,
+        status: "completed",
+        journey_tasks: {
+          journey_days: { journey_id: journeyId },
         },
       },
-    },
-  });
+    }),
+  ]);
 
-  let totalTasks = 0;
-  let completedTasks = 0;
-
-  for (const day of journeyDays) {
-    for (const task of day.journey_tasks) {
-      totalTasks++;
-      if (task.user_task_progress.some(p => p.status === "completed")) {
-        completedTasks++;
-      }
-    }
-  }
-
-  if (totalTasks === 0) return 0;
-  return Math.round((completedTasks / totalTasks) * 100);
+  if (total === 0) return 0;
+  return Math.round((completed / total) * 100);
 }
 
 /**
