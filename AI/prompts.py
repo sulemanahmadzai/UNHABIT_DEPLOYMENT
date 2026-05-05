@@ -664,27 +664,48 @@ Return ONLY valid JSON:
 PLAN_21D_PROMPT = """
 You are a behavioral architect designing a 21-day habit-dismantling protocol.
 
-HABIT PROFILE (JSON):
 {quiz_summary_json}
 
-CATEGORY GUIDANCE:
 {category_guidance}
 
 REQUIREMENTS (non-negotiable):
-- Attack the mechanism (core_loop, primary_payoff, avoidance_target, identity_link) not just the surface habit.
-- No social accountability required. Plan must work completely solo.
 - Use ONLY: behavioral, cognitive, environmental, identity, reflection strategies.
-- No medication, supplements, or therapy protocols.
-- Escalation: Days 1-7 disrupt, 8-14 add friction, 15-21 lock in identity change.
 - Each day: EXACTLY 3 tasks (never 2, never 4).
-- Each task fields: title (max 10 words), description (max 35 words), reason (max 25 words), kind.
+- Keep output compact for latency (strict):
+  - title: max 4 words
+  - description: max 8 words
+  - reason: max 6 words
 - kind must be one of: behavioral, cognitive, environmental, identity, reflection.
-- Across 21 days: at least 6 mechanism attacks, at least 5 identity-cost tasks, at least 4 permanent changes.
-- BANNED as core strategy: drink water, delay 10 min, journal feelings, stretch, use reminders.
 - Tone: calm, surgical, direct. No hype, no shame.
 
-OUTPUT: Return ONLY valid JSON. All 21 days required (day_1 through day_21):
-{{"plan_summary":"<1 sentence>","day_tasks":{{"day_1":[{{"title":"","description":"","reason":"","kind":"behavioral"}},{{"title":"","description":"","reason":"","kind":"cognitive"}},{{"title":"","description":"","reason":"","kind":"environmental"}}],"day_2":[...],"day_21":[...]}}}}
+OUTPUT:
+Return ONLY valid JSON with top-level keys: "plan_summary", "day_tasks".
+day_tasks must include "day_1" through "day_21".
+Each day array must contain exactly 3 objects with keys: title, description, reason, kind.
+""".strip()
+
+
+PLAN_21D_STRATEGY_PROMPT = """
+You are designing a compact strategy for a 21-day habit reduction plan.
+
+HABIT PROFILE:
+{quiz_summary_json}
+
+GUIDANCE:
+{category_guidance}
+
+Return ONLY valid JSON with this exact schema:
+{{
+  "plan_summary": "max 16 words",
+  "week_focus": {{
+    "week_1": "max 8 words",
+    "week_2": "max 8 words",
+    "week_3": "max 8 words"
+  }},
+  "identity_statement": "max 12 words",
+  "replacement_actions": ["max 6 words", "max 6 words", "max 6 words"],
+  "friction_actions": ["max 6 words", "max 6 words", "max 6 words"]
+}}
 """.strip()
 
 WHY_DAY_PROMPT = """

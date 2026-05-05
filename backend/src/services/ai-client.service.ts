@@ -15,7 +15,7 @@ import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
 import { buildFallbackPlan, extractFallbackContext } from "./plan-fallback.service.js";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
-const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 10); // 60 seconds (AI has internal 45s timeout + fallback)
+const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "35000", 10); // 30s fallback window + network margin
 
 /**
  * Soft deadline for the user-facing /plan-21d response. If the AI service has
@@ -26,7 +26,11 @@ const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 1
  * This is the "fast even on cache miss" requirement.
  */
 const PLAN_FAST_RESPONSE_MS = parseInt(
-  process.env.PLAN_FAST_RESPONSE_MS || "3500",
+  process.env.PLAN_FAST_RESPONSE_MS || "30000",
+  10
+);
+const PLAN_FALLBACK_CACHE_TTL_SECONDS = parseInt(
+  process.env.PLAN_FALLBACK_CACHE_TTL_SECONDS || "120",
   10
 );
 
@@ -299,6 +303,7 @@ interface Plan21DResponse {
   plan_summary: string;
   day_tasks: Record<string, DayTask[]>; // {"day_1": [task1, task2, task3], "day_2": [...], ...}
   day_whys?: Record<string, string> | null; // {"day_1": "why", ...}
+  source?: "ai" | "fallback";
 }
 
 interface CoachRequest {
@@ -405,8 +410,16 @@ async function makeRequest<T>(
 
       // Cache successful response if TTL is set
       if (cacheTTL > 0 && !opts.skipCacheWrite) {
-        await cacheAIResponse(endpoint, cacheKey, data, cacheTTL);
-        console.log(`💾 AI response cached: ${endpoint} (TTL: ${cacheTTL}s)`);
+        const ttlToUse =
+          endpoint === "/plan-21d" &&
+          typeof data === "object" &&
+          data !== null &&
+          "source" in (data as Record<string, unknown>) &&
+          (data as Record<string, unknown>).source === "fallback"
+            ? PLAN_FALLBACK_CACHE_TTL_SECONDS
+            : cacheTTL;
+        await cacheAIResponse(endpoint, cacheKey, data, ttlToUse);
+        console.log(`💾 AI response cached: ${endpoint} (TTL: ${ttlToUse}s)`);
       }
 
       return { success: true, data };
@@ -655,6 +668,7 @@ export async function getQuizSummary(
  */
 function planCacheKey(habitGoal: string, quizSummary: Record<string, unknown>): string {
   const canonical = {
+    version: "v2",
     canonical_habit_name: String(quizSummary.canonical_habit_name || habitGoal || "")
       .toLowerCase()
       .trim(),
@@ -788,7 +802,7 @@ export async function generatePlan21D(
   // AI is still chugging away gets a sub-millisecond cache hit instead of
   // racing the deadline again. When the AI call eventually completes, its
   // result will overwrite this entry (same key, same TTL).
-  void cacheAIResponse("/plan-21d", cacheKey, fallbackPlan, CACHE_TTL.PLAN_21D)
+  void cacheAIResponse("/plan-21d", cacheKey, fallbackPlan, PLAN_FALLBACK_CACHE_TTL_SECONDS)
     .then(() => console.log(`💾 Fallback cached under ${cacheKey.slice(0, 8)}… (will be replaced when AI finishes)`))
     .catch(() => {});
 

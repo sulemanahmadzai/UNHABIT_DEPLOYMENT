@@ -26,6 +26,7 @@ export type DayTask = {
 export interface FallbackPlan {
   plan_summary: string;
   day_tasks: Record<string, DayTask[]>;
+  source?: "fallback";
 }
 
 interface FallbackContext {
@@ -159,7 +160,7 @@ export function buildFallbackPlan(ctx: FallbackContext = {}): FallbackPlan {
     ],
   };
 
-  return { plan_summary, day_tasks };
+  return { plan_summary, day_tasks, source: "fallback" };
 }
 
 /**

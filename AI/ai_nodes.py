@@ -13,6 +13,7 @@ from prompts import (
     SAFETY_PROMPT,
     QUIZ_SUMMARY_PROMPT,
     PLAN_21D_PROMPT,
+    PLAN_21D_STRATEGY_PROMPT,
     COACH_PROMPT,
     QUIZ_GENERATOR_PROMPT,
     CANONICALIZE_PROMPT,
@@ -119,27 +120,30 @@ def _get_model(name: str, default: str) -> str:
 # Default to valid OpenAI model names
 MODEL_JSON = os.getenv("OPENAI_MODEL_JSON", "gpt-4o-mini")  # Valid model: gpt-4o-mini, gpt-4o, gpt-4-turbo, etc.
 MODEL_TEXT = os.getenv("OPENAI_MODEL_TEXT", "gpt-4o-mini")  # Valid model: gpt-4o-mini, gpt-4o, gpt-4-turbo, etc.
+MODEL_PLAN = os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-mini")  # Dedicated model for /plan-21d only
+
+
 def _llm_json(
     prompt: str,
     max_tokens: int = 800,
     temperature: float = 0.5,
     retries: int = 2,
-    timeout: float = 18.0,
+    timeout: float = 25.0,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Call the JSON-optimized LLM and return a Python dict.
     Retries with slightly higher temperature if parsing fails.
 
-    `timeout` defaults to 18s — slightly under plan21_node's 20s hard
-    timeout, so an LLM that genuinely hangs gets killed by its own client
-    rather than leaving an orphaned thread running for 50+ seconds.
+    Default timeout suits small JSON calls; plan21_node passes an explicit
+    tighter client timeout slightly below its hard thread timeout.
     """
     # Ensure at least one attempt
     attempts = max(1, retries + 1)
 
     for attempt in range(attempts):
         llm = ChatOpenAI(
-            model=MODEL_JSON,
+            model=model or MODEL_JSON,
             temperature=temperature + (attempt * 0.2),
             response_format={"type": "json_object"},
             timeout=timeout,
@@ -738,6 +742,183 @@ Must include across 21 days:
     return base_context + "\n" + cat_block
 
 
+def _category_guidance_compact(summary: QuizSummary) -> str:
+    """
+    Compact version of `_category_guidance`.
+
+    The previous rich guidance strings were very long, which bloated the LLM input
+    and increased latency. This keeps the same personalization signals but uses
+    far fewer tokens so `/plan-21d` can complete faster.
+    """
+    cat = (summary.habit_category or "other").lower()
+    name = summary.canonical_habit_name or summary.user_habit_raw or "the habit"
+    severity = summary.severity_level
+    trigger = summary.main_trigger or "unclear triggers"
+    peak = summary.peak_times or "unclear peak times"
+    loc = summary.common_locations or "unclear locations"
+    emo = summary.emotional_patterns or "unclear emotional patterns"
+    motive = summary.motivation_reason or "unclear motivation"
+    risk = summary.risk_situations or "unclear risk situations"
+
+    # Keep category hints short: enough to differentiate habits, not so much they dominate prompt tokens.
+    if cat in ["nicotine_smoking", "nicotine_vaping", "nicotine_oral"]:
+        cat_core = (
+            f"Category focus (nicotine): treat {name} as a cue/ritual loop. Build friction around access/storage "
+            f"and target urge moments around {peak}. Severity={severity}."
+        )
+    elif cat == "pornography":
+        cat_core = (
+            f"Category focus (porn): device + privacy + late-night loop. Add friction entering high-risk places {loc} "
+            f"and replace urges with immediate alternatives. Target triggers around {peak}."
+        )
+    elif cat in ["screen_time", "social_media", "gaming"]:
+        cat_core = (
+            f"Category focus (screen): algorithm + environment + boredom loop. Rewire notification/home screen and "
+            f"shift first/last 30 minutes around {peak}. Tie replacements to motivation: {motive}."
+        )
+    elif cat in ["alcohol", "cannabis"]:
+        cat_core = (
+            f"Category focus (substance): context + people + emotion regulation. Create no-use contexts and reroute at "
+            f"high-risk windows {peak}/{loc}. Target collapse states tied to {emo}."
+        )
+    elif cat in ["sugar", "food_overeating"]:
+        cat_core = (
+            f"Category focus (food/sugar): kitchen + visibility + soothing loop. Reduce proximity/visibility of triggers "
+            f"and add pre-meal checks for {emo}. Use portion/environment tweaks."
+        )
+    elif cat in ["shopping_spending", "gambling"]:
+        cat_core = (
+            f"Category focus (spending/gambling): access + impulse loop. Restrict/delay financial access and set clear "
+            f"pre-commitment rules near {peak}. Review episodes analytically."
+        )
+    elif cat == "procrastination":
+        cat_core = (
+            f"Category focus (procrastination): avoidance loop on specific work/feelings. Use tiny start actions, "
+            f"environment/time-box rules, and pre-work emotional prep tied to {emo}."
+        )
+    else:
+        cat_core = (
+            f"Category focus (other): use the user's patterns. Target trigger {trigger}, peak {peak}, and environment {loc} "
+            f"with emotional timing {emo}. Risk: {risk}."
+        )
+
+    # A short base context that the plan prompt can reference without huge token cost.
+    return (
+        "User context summary:\n"
+        f"- Habit: {name}\n"
+        f"- Trigger: {trigger}\n"
+        f"- Peak: {peak}\n"
+        f"- Common location: {loc}\n"
+        f"- Emotional pattern: {emo}\n"
+        f"- Motivation: {motive}\n"
+        f"- Severity: {severity}\n"
+        + cat_core
+    )
+
+
+def _trim_words(text: str, max_words: int) -> str:
+    words = [w for w in str(text or "").strip().split() if w]
+    if not words:
+        return ""
+    if len(words) <= max_words:
+        return " ".join(words)
+    return " ".join(words[:max_words])
+
+
+def _clean_sentence(text: str) -> str:
+    s = " ".join(str(text or "").strip().split())
+    if not s:
+        return ""
+    # Remove accidental repeated punctuation artifacts from previous joins.
+    while ".." in s:
+        s = s.replace("..", ".")
+    s = s.rstrip(" .")
+    return f"{s}."
+
+
+def _ensure_list(values: Any, fallback: list[str]) -> list[str]:
+    if isinstance(values, list):
+        out = [_trim_words(str(v), 6) for v in values if str(v).strip()]
+        if out:
+            return out[:3]
+    return fallback
+
+
+def _expand_strategy_to_plan21(
+    strategy: Dict[str, Any],
+    quiz_summary: Optional[QuizSummary],
+) -> Plan21D:
+    """
+    Deterministically expand a compact strategy into the full 21-day plan schema.
+    This keeps output shape stable while making the LLM generate much less text.
+    """
+    base = _fallback_plan21(quiz_summary)
+    day_tasks = {k: list(v) for k, v in base.day_tasks.items()}
+
+    habit = (
+        (quiz_summary.canonical_habit_name if quiz_summary else None)
+        or (quiz_summary.user_habit_raw if quiz_summary else None)
+        or "your habit"
+    )
+
+    week_focus = strategy.get("week_focus") if isinstance(strategy.get("week_focus"), dict) else {}
+    week_1 = _trim_words(str(week_focus.get("week_1", "build awareness")), 8)
+    week_2 = _trim_words(str(week_focus.get("week_2", "add friction")), 8)
+    week_3 = _trim_words(str(week_focus.get("week_3", "lock identity")), 8)
+
+    replacements = _ensure_list(
+        strategy.get("replacement_actions"),
+        ["short walk", "read 10 minutes", "breathing reset"],
+    )
+    frictions = _ensure_list(
+        strategy.get("friction_actions"),
+        ["move app icon", "charge phone away", "delay first use"],
+    )
+
+    for day in range(1, 22):
+        key = f"day_{day}"
+        if day <= 7:
+            focus = week_1
+        elif day <= 14:
+            focus = week_2
+        else:
+            focus = week_3
+
+        tasks = day_tasks.get(key, [])
+        patched = []
+        for idx, task in enumerate(tasks[:3]):
+            repl = replacements[idx % len(replacements)]
+            fric = frictions[idx % len(frictions)]
+            desc = _clean_sentence(task.description)
+            reason = _clean_sentence(task.reason)
+            # Add strategy hints only on weekly boundary days to preserve quality/readability.
+            if day in (1, 8, 15):
+                desc = _clean_sentence(f"{desc} Week focus: {focus}")
+                reason = _clean_sentence(f"{reason} Try: {repl}; friction: {fric}")
+            patched.append(
+                DayTask(
+                    title=_trim_words(task.title, 5),
+                    description=desc or task.description,
+                    reason=reason or task.reason,
+                    kind=task.kind,
+                )
+            )
+        # Guarantee exactly 3 items/day in output shape
+        if len(patched) < 3:
+            patched.extend(base.day_tasks[key][: 3 - len(patched)])
+        day_tasks[key] = patched[:3]
+
+    plan_summary_base = " ".join(
+        str(strategy.get("plan_summary") or base.plan_summary).strip().split()
+    )
+    plan_summary = _clean_sentence(plan_summary_base)
+    identity_stmt = " ".join(str(strategy.get("identity_statement") or "").strip().split())
+    if identity_stmt:
+        plan_summary = _clean_sentence(f"{plan_summary} Identity: {identity_stmt}")
+
+    return Plan21D(plan_summary=plan_summary, day_tasks=day_tasks, source="ai")
+
+
 # ---------- 21-Day Plan Node ----------
 
 def _fallback_plan21(quiz_summary: Optional[QuizSummary] = None) -> Plan21D:
@@ -875,14 +1056,14 @@ def _fallback_plan21(quiz_summary: Optional[QuizSummary] = None) -> Plan21D:
         ],
     }
 
-    return Plan21D(plan_summary=plan_summary, day_tasks=day_tasks)
+    return Plan21D(plan_summary=plan_summary, day_tasks=day_tasks, source="fallback")
 
 def plan21_node(state: HabitState) -> Dict[str, Any]:
     """
     Generate the 21-day plan using the QuizSummary as context
     + category-specific guidance so different habits feel truly different.
     
-    Optimized with a hard 45-second timeout — if the LLM doesn't respond
+    Optimized with a hard timeout — if the LLM doesn't respond
     in time, we immediately return the personalized fallback plan.
     This prevents the request from hanging for 5-10 minutes.
     """
@@ -893,23 +1074,23 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         return {"plan21": _fallback_plan21(None)}
 
     quiz_json = state.quiz_summary.model_dump()
-    guidance = _category_guidance(state.quiz_summary)
+    guidance = _category_guidance_compact(state.quiz_summary)
 
-    prompt = PLAN_21D_PROMPT.format(
+    strategy_prompt = PLAN_21D_STRATEGY_PROMPT.format(
         quiz_summary_json=json.dumps(quiz_json, ensure_ascii=False),
         category_guidance=guidance,
     )
 
-    # Hard timeout: keep this tight enough that even when the LLM is slow,
-    # the AI service answers within ~30s. The backend layer additionally
-    # implements stale-while-revalidate with a ~4-5s soft deadline, so
-    # users never block on this; this timeout only governs how long the
-    # background AI call runs before it gives up and lets the fallback win.
-    LLM_TIMEOUT_SECONDS = int(os.getenv("PLAN_LLM_TIMEOUT_SECONDS", "20"))
-    # With the compact prompt (shorter titles/descriptions/reasons) each task
-    # averages ~55 tokens → 21 days × 3 tasks × 55 = ~3465, plus plan_summary
-    # and JSON structure ≈ 4000 total. Cap at 4000 so the model doesn't pad.
-    LLM_MAX_TOKENS = int(os.getenv("PLAN_LLM_MAX_TOKENS", "4000"))
+    # Hard thread timeout: return fallback if LLM is still running past this.
+    LLM_TIMEOUT_SECONDS = int(os.getenv("PLAN_LLM_TIMEOUT_SECONDS", "30"))
+    # Stage-1 now returns compact strategy JSON, so token budget is very small.
+    LLM_MAX_TOKENS = int(os.getenv("PLAN_LLM_MAX_TOKENS", "260"))
+    LLM_CLIENT_TIMEOUT = float(
+        os.getenv(
+            "PLAN_LLM_CLIENT_TIMEOUT",
+            str(max(12.0, LLM_TIMEOUT_SECONDS - 3.0)),
+        )
+    )
     start_time = time.time()
 
     # NOTE: We deliberately do NOT use `with ThreadPoolExecutor(...)` here.
@@ -924,10 +1105,12 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
     try:
         future = executor.submit(
             _llm_json,
-            prompt,
-            LLM_MAX_TOKENS,  # cap output tokens (3000 was excessive — 2200 fits 21×3 tasks comfortably)
-            0.35,            # temperature
-            0,               # no in-fn retries
+            strategy_prompt,
+            LLM_MAX_TOKENS,
+            0.2,
+            0,
+            LLM_CLIENT_TIMEOUT,
+            MODEL_PLAN,
         )
         try:
             data = future.result(timeout=LLM_TIMEOUT_SECONDS)
@@ -945,33 +1128,12 @@ def plan21_node(state: HabitState) -> Dict[str, Any]:
         elapsed = time.time() - start_time
         print(f"[plan21_node] LLM responded in {elapsed:.1f}s")
 
-        # Basic sanitization — day_tasks values should be lists of task dicts
-        day_tasks = data.get("day_tasks", {}) or {}
-        fallback = _fallback_plan21(state.quiz_summary)
-        
-        # Validate we got at least some days
-        if not day_tasks or len(day_tasks) < 10:
-            # If we got less than 10 days, just use fallback
-            print(f"[plan21_node] LLM returned insufficient days ({len(day_tasks)}), using fallback")
-            return {"plan21": fallback}
-        
-        for i in range(1, 22):
-            key = f"day_{i}"
-            if key not in day_tasks or not isinstance(day_tasks[key], list) or len(day_tasks[key]) < 2:
-                day_tasks[key] = fallback.day_tasks[key]
-            else:
-                valid = [t for t in day_tasks[key] if isinstance(t, dict) and t.get("title")]
-                day_tasks[key] = valid if len(valid) >= 2 else fallback.day_tasks[key]
+        if not isinstance(data, dict):
+            print("[plan21_node] Strategy payload invalid, using fallback")
+            return {"plan21": _fallback_plan21(state.quiz_summary)}
 
-        data["day_tasks"] = day_tasks
-
-        if "plan_summary" not in data or not isinstance(data["plan_summary"], str):
-            data["plan_summary"] = (
-                f"Personalized 21-day behavioural plan to reduce {state.quiz_summary.canonical_habit_name}."
-            )
-
-        plan = Plan21D(**data)
-        print(f"[plan21_node] ✅ Successfully generated AI plan with {len(day_tasks)} days in {elapsed:.1f}s")
+        plan = _expand_strategy_to_plan21(data, state.quiz_summary)
+        print(f"[plan21_node] ✅ Strategy generated + expanded in {elapsed:.1f}s")
     except Exception as e:
         # Log the error but use fallback instead of failing
         elapsed = time.time() - start_time

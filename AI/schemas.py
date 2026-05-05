@@ -225,6 +225,8 @@ class Plan21D(BaseModel):
 
     # e.g. {"day_1": "These tasks weaken the cue→reward link in your evening loop.", ...}
     day_whys: Optional[Dict[str, str]] = None
+    # marks whether this payload is model-generated or deterministic fallback
+    source: Optional[Literal["ai", "fallback"]] = None
 
 
 
