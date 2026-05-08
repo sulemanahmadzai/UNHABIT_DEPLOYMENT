@@ -13,7 +13,7 @@ import redis from "../db/redis.js";
 import { cacheAIResponse, getCachedAIResponse } from "./cache.service.js";
 import { buildFallbackPlan, extractFallbackContext } from "./plan-fallback.service.js";
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
-const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 10); // 60 seconds (AI has internal 45s timeout + fallback)
+const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "35000", 10); // 30s fallback window + network margin
 /**
  * Soft deadline for the user-facing /plan-21d response. If the AI service has
  * not produced a real plan within this time budget, we instantly return a
@@ -22,7 +22,10 @@ const AI_SERVICE_TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || "60000", 1
  *
  * This is the "fast even on cache miss" requirement.
  */
-const PLAN_FAST_RESPONSE_MS = parseInt(process.env.PLAN_FAST_RESPONSE_MS || "3500", 10);
+const PLAN_FAST_RESPONSE_MS = parseInt(process.env.PLAN_FAST_RESPONSE_MS || "30000", 10);
+const PLAN_FALLBACK_CACHE_TTL_SECONDS = parseInt(process.env.PLAN_FALLBACK_CACHE_TTL_SECONDS || "120", 10);
+const QUIZ_FORM_FAST_RESPONSE_MS = parseInt(process.env.QUIZ_FORM_FAST_RESPONSE_MS || "12000", 10);
+const QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS = parseInt(process.env.QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS || "120", 10);
 // Cache TTLs for different AI endpoints (in seconds)
 const CACHE_TTL = {
     ONBOARDING: 3600, // 1 hour
@@ -149,8 +152,15 @@ opts = {}) {
             console.log(`✅ AI response: ${endpoint} in ${elapsed}ms`);
             // Cache successful response if TTL is set
             if (cacheTTL > 0 && !opts.skipCacheWrite) {
-                await cacheAIResponse(endpoint, cacheKey, data, cacheTTL);
-                console.log(`💾 AI response cached: ${endpoint} (TTL: ${cacheTTL}s)`);
+                const ttlToUse = endpoint === "/plan-21d" &&
+                    typeof data === "object" &&
+                    data !== null &&
+                    "source" in data &&
+                    data.source === "fallback"
+                    ? PLAN_FALLBACK_CACHE_TTL_SECONDS
+                    : cacheTTL;
+                await cacheAIResponse(endpoint, cacheKey, data, ttlToUse);
+                console.log(`💾 AI response cached: ${endpoint} (TTL: ${ttlToUse}s)`);
             }
             return { success: true, data };
         }
@@ -177,6 +187,109 @@ opts = {}) {
  * processes via Redis.
  */
 const inflightPlanGen = new Set();
+const inflightQuizFormGen = new Set();
+function normalizeForCache(value) {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+}
+function quizFormCacheKey(habitCategory) {
+    return redis.hash({
+        version: "v1",
+        habit_category: normalizeForCache(habitCategory),
+    });
+}
+function buildFallbackQuizForm(habitCategory, habitDescription) {
+    const friendlyHabit = habitDescription || habitCategory || "this habit";
+    const questions = [
+        {
+            id: "frequency",
+            question: `How often do you do ${friendlyHabit}?`,
+            helper_text: "Pick what matches your typical pattern.",
+            options: [
+                { id: "daily_once", label: "About once a day" },
+                { id: "daily_multiple", label: "Multiple times a day" },
+                { id: "few_times_week", label: "A few times per week" },
+                { id: "weekend_only", label: "Mostly on weekends" },
+                { id: "other", label: "Other" },
+            ],
+        },
+        {
+            id: "trigger",
+            question: "What usually triggers it?",
+            helper_text: "Choose the strongest trigger.",
+            options: [
+                { id: "stress", label: "Stress or overwhelm" },
+                { id: "boredom", label: "Boredom" },
+                { id: "social", label: "Social situations" },
+                { id: "routine", label: "Part of my routine" },
+                { id: "other", label: "Other" },
+            ],
+        },
+        {
+            id: "time_of_day",
+            question: "When is it most likely to happen?",
+            helper_text: "",
+            options: [
+                { id: "morning", label: "Morning" },
+                { id: "afternoon", label: "Afternoon" },
+                { id: "evening", label: "Evening" },
+                { id: "late_night", label: "Late night" },
+                { id: "other", label: "Other" },
+            ],
+        },
+        {
+            id: "difficulty",
+            question: "How hard is it for you to resist right now?",
+            helper_text: "",
+            options: [
+                { id: "easy", label: "Mild - I can usually control it" },
+                { id: "medium", label: "Moderate - it is a regular struggle" },
+                { id: "hard", label: "High - it feels very hard to stop" },
+                { id: "very_hard", label: "Severe - I feel stuck in it" },
+            ],
+        },
+        {
+            id: "previous_attempts",
+            question: "Have you tried to reduce or quit before?",
+            helper_text: "",
+            options: [
+                { id: "never", label: "No, this is my first serious attempt" },
+                { id: "few_times", label: "Yes, a few times" },
+                { id: "many_times", label: "Yes, many times" },
+                { id: "currently_relapsing", label: "Yes, but I keep relapsing quickly" },
+            ],
+        },
+    ];
+    return {
+        habit_name_guess: habitCategory || "habit_change",
+        questions,
+    };
+}
+function enrichQuizFormResponse(result) {
+    return {
+        ...result,
+        questions: result.questions.map((question) => {
+            const hasOtherOption = question.options.some((option) => isOtherToken(option.label) || isOtherToken(option.id));
+            return {
+                ...question,
+                has_other_option: hasOtherOption,
+                options: question.options.map((option) => {
+                    const isOther = isOtherToken(option.label) || isOtherToken(option.id);
+                    if (!isOther)
+                        return option;
+                    return {
+                        ...option,
+                        allow_custom_input: true,
+                        custom_input_key: `${question.id}__other_text`,
+                        custom_input_placeholder: "Please specify",
+                    };
+                }),
+            };
+        }),
+    };
+}
 /**
  * Start onboarding - Safety check + quiz form generation
  * AI expects: { habit_description: str, user_id?: str }
@@ -251,32 +364,49 @@ export async function generateQuizForm(request) {
             habit_description: habitDescription,
         },
     };
-    const result = await makeRequest("/quiz-form", aiServiceRequest, 2, CACHE_TTL.QUIZ_FORM);
-    if (!result.success || !result.data?.questions) {
-        return result;
+    const cacheKey = quizFormCacheKey(request.habit_category);
+    const startTime = Date.now();
+    const cached = await getCachedAIResponse("/quiz-form", cacheKey);
+    if (cached !== null) {
+        console.log(`✅ /quiz-form cache hit (${Date.now() - startTime}ms)`);
+        return { success: true, data: cached };
     }
-    const enriched = {
-        ...result.data,
-        questions: result.data.questions.map((question) => {
-            const hasOtherOption = question.options.some((option) => isOtherToken(option.label) || isOtherToken(option.id));
-            return {
-                ...question,
-                has_other_option: hasOtherOption,
-                options: question.options.map((option) => {
-                    const isOther = isOtherToken(option.label) || isOtherToken(option.id);
-                    if (!isOther)
-                        return option;
-                    return {
-                        ...option,
-                        allow_custom_input: true,
-                        custom_input_key: `${question.id}__other_text`,
-                        custom_input_placeholder: "Please specify",
-                    };
-                }),
-            };
-        }),
-    };
-    return { success: true, data: enriched };
+    console.log(`🏁 /quiz-form cache miss — racing AI vs ${QUIZ_FORM_FAST_RESPONSE_MS}ms fallback deadline`);
+    const aiPromise = makeRequest("/quiz-form", aiServiceRequest, 0, CACHE_TTL.QUIZ_FORM, { cacheKey, skipCacheRead: true, timeoutMs: AI_SERVICE_TIMEOUT });
+    const taggedAI = aiPromise.then((res) => ({
+        kind: "ai",
+        res,
+    }));
+    const deadline = new Promise((resolve) => setTimeout(() => resolve({ kind: "deadline" }), QUIZ_FORM_FAST_RESPONSE_MS));
+    const winner = await Promise.race([taggedAI, deadline]);
+    if (winner.kind === "ai" && winner.res.success && winner.res.data?.questions) {
+        console.log(`🚀 /quiz-form AI beat the deadline in ${Date.now() - startTime}ms`);
+        return { success: true, data: enrichQuizFormResponse(winner.res.data) };
+    }
+    if (winner.kind === "ai" && !winner.res.success) {
+        console.warn(`⚠️ /quiz-form AI failed in ${Date.now() - startTime}ms: ${winner.res.error}. Returning fallback.`);
+        return {
+            success: true,
+            data: enrichQuizFormResponse(buildFallbackQuizForm(request.habit_category, habitDescription)),
+        };
+    }
+    console.log(`⏱️ /quiz-form deadline reached after ${Date.now() - startTime}ms — returning fallback, AI continues in background`);
+    const fallbackForm = enrichQuizFormResponse(buildFallbackQuizForm(request.habit_category, habitDescription));
+    void cacheAIResponse("/quiz-form", cacheKey, fallbackForm, QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS)
+        .then(() => console.log(`💾 Quiz fallback cached under ${cacheKey.slice(0, 8)}… (will be replaced when AI finishes)`))
+        .catch(() => { });
+    if (!inflightQuizFormGen.has(cacheKey)) {
+        inflightQuizFormGen.add(cacheKey);
+        void aiPromise
+            .then((res) => {
+            if (res.success) {
+                console.log(`💾 Background /quiz-form ready — cache key ${cacheKey.slice(0, 8)}… now serves AI quiz form`);
+            }
+        })
+            .catch(() => { })
+            .finally(() => inflightQuizFormGen.delete(cacheKey));
+    }
+    return { success: true, data: fallbackForm };
 }
 /**
  * Get quiz summary
@@ -364,6 +494,7 @@ export async function getQuizSummary(request) {
  */
 function planCacheKey(habitGoal, quizSummary) {
     const canonical = {
+        version: "v2",
         canonical_habit_name: String(quizSummary.canonical_habit_name || habitGoal || "")
             .toLowerCase()
             .trim(),
@@ -470,7 +601,7 @@ export async function generatePlan21D(request) {
     // AI is still chugging away gets a sub-millisecond cache hit instead of
     // racing the deadline again. When the AI call eventually completes, its
     // result will overwrite this entry (same key, same TTL).
-    void cacheAIResponse("/plan-21d", cacheKey, fallbackPlan, CACHE_TTL.PLAN_21D)
+    void cacheAIResponse("/plan-21d", cacheKey, fallbackPlan, PLAN_FALLBACK_CACHE_TTL_SECONDS)
         .then(() => console.log(`💾 Fallback cached under ${cacheKey.slice(0, 8)}… (will be replaced when AI finishes)`))
         .catch(() => { });
     // Track in-flight background AI work for observability / future de-dup.

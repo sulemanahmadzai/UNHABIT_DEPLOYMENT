@@ -33,6 +33,18 @@ const PLAN_FALLBACK_CACHE_TTL_SECONDS = parseInt(
   process.env.PLAN_FALLBACK_CACHE_TTL_SECONDS || "120",
   10
 );
+const QUIZ_FORM_FAST_RESPONSE_MS = parseInt(
+  process.env.QUIZ_FORM_FAST_RESPONSE_MS || "30000",
+  10
+);
+const QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS = parseInt(
+  process.env.QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS || "120",
+  10
+);
+const QUIZ_FORM_AI_TIMEOUT_MS = parseInt(
+  process.env.QUIZ_FORM_AI_TIMEOUT_MS || "180000",
+  10
+);
 
 // Cache TTLs for different AI endpoints (in seconds)
 const CACHE_TTL = {
@@ -448,6 +460,120 @@ async function makeRequest<T>(
  * processes via Redis.
  */
 const inflightPlanGen = new Set<string>();
+const inflightQuizFormGen = new Set<string>();
+
+function normalizeForCache(value: string | undefined): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function quizFormCacheKey(habitCategory: string): string {
+  return redis.hash({
+    version: "v1",
+    habit_category: normalizeForCache(habitCategory),
+  });
+}
+
+function buildFallbackQuizForm(
+  habitCategory: string,
+  habitDescription: string
+): QuizFormResponse {
+  const friendlyHabit = habitDescription || habitCategory || "this habit";
+
+  const questions: QuizFormResponse["questions"] = [
+    {
+      id: "frequency",
+      question: `How often do you do ${friendlyHabit}?`,
+      helper_text: "Pick what matches your typical pattern.",
+      options: [
+        { id: "daily_once", label: "About once a day" },
+        { id: "daily_multiple", label: "Multiple times a day" },
+        { id: "few_times_week", label: "A few times per week" },
+        { id: "weekend_only", label: "Mostly on weekends" },
+        { id: "other", label: "Other" },
+      ],
+    },
+    {
+      id: "trigger",
+      question: "What usually triggers it?",
+      helper_text: "Choose the strongest trigger.",
+      options: [
+        { id: "stress", label: "Stress or overwhelm" },
+        { id: "boredom", label: "Boredom" },
+        { id: "social", label: "Social situations" },
+        { id: "routine", label: "Part of my routine" },
+        { id: "other", label: "Other" },
+      ],
+    },
+    {
+      id: "time_of_day",
+      question: "When is it most likely to happen?",
+      helper_text: "",
+      options: [
+        { id: "morning", label: "Morning" },
+        { id: "afternoon", label: "Afternoon" },
+        { id: "evening", label: "Evening" },
+        { id: "late_night", label: "Late night" },
+        { id: "other", label: "Other" },
+      ],
+    },
+    {
+      id: "difficulty",
+      question: "How hard is it for you to resist right now?",
+      helper_text: "",
+      options: [
+        { id: "easy", label: "Mild - I can usually control it" },
+        { id: "medium", label: "Moderate - it is a regular struggle" },
+        { id: "hard", label: "High - it feels very hard to stop" },
+        { id: "very_hard", label: "Severe - I feel stuck in it" },
+      ],
+    },
+    {
+      id: "previous_attempts",
+      question: "Have you tried to reduce or quit before?",
+      helper_text: "",
+      options: [
+        { id: "never", label: "No, this is my first serious attempt" },
+        { id: "few_times", label: "Yes, a few times" },
+        { id: "many_times", label: "Yes, many times" },
+        { id: "currently_relapsing", label: "Yes, but I keep relapsing quickly" },
+      ],
+    },
+  ];
+
+  return {
+    habit_name_guess: habitCategory || "habit_change",
+    questions,
+  };
+}
+
+function enrichQuizFormResponse(result: QuizFormResponse): QuizFormResponse {
+  return {
+    ...result,
+    questions: result.questions.map((question) => {
+      const hasOtherOption = question.options.some(
+        (option) => isOtherToken(option.label) || isOtherToken(option.id)
+      );
+
+      return {
+        ...question,
+        has_other_option: hasOtherOption,
+        options: question.options.map((option) => {
+          const isOther = isOtherToken(option.label) || isOtherToken(option.id);
+          if (!isOther) return option;
+          return {
+            ...option,
+            allow_custom_input: true,
+            custom_input_key: `${question.id}__other_text`,
+            custom_input_placeholder: "Please specify",
+          };
+        }),
+      };
+    }),
+  };
+}
 
 /**
  * Start onboarding - Safety check + quiz form generation
@@ -537,42 +663,92 @@ export async function generateQuizForm(
       habit_description: habitDescription,
     },
   };
-  const result = await makeRequest<QuizFormResponse>(
-    "/quiz-form",
-    aiServiceRequest,
-    2,
-    CACHE_TTL.QUIZ_FORM
-  );
+  const cacheKey = quizFormCacheKey(request.habit_category);
+  const startTime = Date.now();
 
-  if (!result.success || !result.data?.questions) {
-    return result;
+  const cached = await getCachedAIResponse("/quiz-form", cacheKey);
+  if (cached !== null) {
+    console.log(`✅ /quiz-form cache hit (${Date.now() - startTime}ms)`);
+    return { success: true, data: cached as QuizFormResponse };
   }
 
-  const enriched: QuizFormResponse = {
-    ...result.data,
-    questions: result.data.questions.map((question) => {
-      const hasOtherOption = question.options.some(
-        (option) => isOtherToken(option.label) || isOtherToken(option.id)
-      );
+  console.log(
+    `🏁 /quiz-form cache miss — racing AI vs ${QUIZ_FORM_FAST_RESPONSE_MS}ms fallback deadline`
+  );
 
-      return {
-        ...question,
-        has_other_option: hasOtherOption,
-        options: question.options.map((option) => {
-          const isOther = isOtherToken(option.label) || isOtherToken(option.id);
-          if (!isOther) return option;
-          return {
-            ...option,
-            allow_custom_input: true,
-            custom_input_key: `${question.id}__other_text`,
-            custom_input_placeholder: "Please specify",
-          };
-        }),
-      };
-    }),
-  };
+  const aiPromise = makeRequest<QuizFormResponse>(
+    "/quiz-form",
+    aiServiceRequest,
+    0,
+    CACHE_TTL.QUIZ_FORM,
+    { cacheKey, skipCacheRead: true, timeoutMs: QUIZ_FORM_AI_TIMEOUT_MS }
+  );
 
-  return { success: true, data: enriched };
+  type RaceResult =
+    | { kind: "ai"; res: AIServiceResponse<QuizFormResponse> }
+    | { kind: "deadline" };
+
+  const taggedAI: Promise<RaceResult> = aiPromise.then((res) => ({
+    kind: "ai",
+    res,
+  }));
+  const deadline: Promise<RaceResult> = new Promise((resolve) =>
+    setTimeout(() => resolve({ kind: "deadline" }), QUIZ_FORM_FAST_RESPONSE_MS)
+  );
+  const winner = await Promise.race([taggedAI, deadline]);
+
+  if (winner.kind === "ai" && winner.res.success && winner.res.data?.questions) {
+    console.log(`🚀 /quiz-form AI beat the deadline in ${Date.now() - startTime}ms`);
+    return { success: true, data: enrichQuizFormResponse(winner.res.data) };
+  }
+
+  if (winner.kind === "ai" && !winner.res.success) {
+    console.warn(
+      `⚠️ /quiz-form AI failed in ${Date.now() - startTime}ms: ${winner.res.error}. Returning fallback.`
+    );
+    return {
+      success: true,
+      data: enrichQuizFormResponse(
+        buildFallbackQuizForm(request.habit_category, habitDescription)
+      ),
+    };
+  }
+
+  console.log(
+    `⏱️ /quiz-form deadline reached after ${Date.now() - startTime}ms — returning fallback, AI continues in background`
+  );
+  const fallbackForm = enrichQuizFormResponse(
+    buildFallbackQuizForm(request.habit_category, habitDescription)
+  );
+
+  void cacheAIResponse(
+    "/quiz-form",
+    cacheKey,
+    fallbackForm,
+    QUIZ_FORM_FALLBACK_CACHE_TTL_SECONDS
+  )
+    .then(() =>
+      console.log(
+        `💾 Quiz fallback cached under ${cacheKey.slice(0, 8)}… (will be replaced when AI finishes)`
+      )
+    )
+    .catch(() => {});
+
+  if (!inflightQuizFormGen.has(cacheKey)) {
+    inflightQuizFormGen.add(cacheKey);
+    void aiPromise
+      .then((res) => {
+        if (res.success) {
+          console.log(
+            `💾 Background /quiz-form ready — cache key ${cacheKey.slice(0, 8)}… now serves AI quiz form`
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => inflightQuizFormGen.delete(cacheKey));
+  }
+
+  return { success: true, data: fallbackForm };
 }
 
 /**

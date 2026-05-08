@@ -134,6 +134,7 @@ interface Plan21DResponse {
     plan_summary: string;
     day_tasks: Record<string, DayTask[]>;
     day_whys?: Record<string, string> | null;
+    source?: "ai" | "fallback";
 }
 interface CoachRequest {
     message: string;

@@ -15,7 +15,6 @@ from prompts import (
     PLAN_21D_PROMPT,
     PLAN_21D_STRATEGY_PROMPT,
     COACH_PROMPT,
-    QUIZ_GENERATOR_PROMPT,
     CANONICALIZE_PROMPT,
     WHY_DAY_PROMPT
 )
@@ -121,6 +120,7 @@ def _get_model(name: str, default: str) -> str:
 MODEL_JSON = os.getenv("OPENAI_MODEL_JSON", "gpt-4o-mini")  # Valid model: gpt-4o-mini, gpt-4o, gpt-4-turbo, etc.
 MODEL_TEXT = os.getenv("OPENAI_MODEL_TEXT", "gpt-4o-mini")  # Valid model: gpt-4o-mini, gpt-4o, gpt-4-turbo, etc.
 MODEL_PLAN = os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-mini")  # Dedicated model for /plan-21d only
+MODEL_QUIZ = os.getenv("OPENAI_MODEL_QUIZ", MODEL_JSON)
 
 
 def _llm_json(
@@ -360,19 +360,85 @@ def quiz_form_node(state: HabitState) -> Dict[str, Any]:
     """
     habit_description = state.habit_description or ""
 
-    prompt = QUIZ_GENERATOR_PROMPT.format(
-        habit_description=habit_description
+    # Keep output very small for latency:
+    # - ask for compact JSON only
+    # - then deterministically expand into full QuizForm schema in Python
+    prompt = (
+        "Return strict JSON only.\n"
+        "Create a concise habit quiz for this user.\n"
+        "Rules:\n"
+        "- Exactly 6 questions.\n"
+        "- Exactly 4 options per question.\n"
+        "- habit_name_guess: 2-6 words.\n"
+        "- Question text max 12 words.\n"
+        "- Option text max 6 words.\n\n"
+        "JSON schema:\n"
+        "{\n"
+        '  "habit_name_guess": "string",\n'
+        '  "questions": [\n'
+        '    {"question": "string", "options": ["a","b","c","d"]}\n'
+        "  ]\n"
+        "}\n\n"
+        f"Habit description:\n{habit_description}"
     )
 
-    llm = ChatOpenAI(
-        model=MODEL_JSON,
-        temperature=0.4,
-    )
-    structured_llm = llm.with_structured_output(QuizForm)
+    timeout_s = float(os.getenv("QUIZ_LLM_CLIENT_TIMEOUT", "180"))
+    max_tokens = int(os.getenv("QUIZ_LLM_MAX_TOKENS", "260"))
 
     try:
-        # Expecting the LLM to respect the QuizForm schema with MCQ options.
-        quiz_form = structured_llm.invoke(prompt)
+        # Fast JSON path: avoids extra structured-output overhead and keeps
+        # latency predictable for onboarding.
+        payload = _llm_json(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=0.0,
+            retries=0,
+            timeout=timeout_s,
+            model=MODEL_QUIZ,
+        )
+        habit_name_guess = str(payload.get("habit_name_guess") or "").strip()
+        if not habit_name_guess:
+            habit_name_guess = _extract_short_habit_name(habit_description)
+
+        raw_questions = payload.get("questions")
+        if not isinstance(raw_questions, list):
+            raise ValueError("questions must be a list")
+
+        normalized_questions = []
+        for i, q in enumerate(raw_questions[:6], start=1):
+            if not isinstance(q, dict):
+                continue
+            question_text = str(q.get("question") or "").strip()
+            options = q.get("options")
+            if not question_text or not isinstance(options, list):
+                continue
+            option_labels = [str(opt).strip() for opt in options if str(opt).strip()][:4]
+            if len(option_labels) < 4:
+                continue
+
+            normalized_questions.append(
+                {
+                    "id": f"q{i}",
+                    "question": question_text,
+                    "helper_text": None,
+                    "options": [
+                        {"id": f"q{i}_a", "label": option_labels[0], "helper_text": None},
+                        {"id": f"q{i}_b", "label": option_labels[1], "helper_text": None},
+                        {"id": f"q{i}_c", "label": option_labels[2], "helper_text": None},
+                        {"id": f"q{i}_d", "label": option_labels[3], "helper_text": None},
+                    ],
+                }
+            )
+
+        if len(normalized_questions) < 4:
+            raise ValueError("Not enough valid quiz questions from model")
+
+        quiz_form = QuizForm.model_validate(
+            {
+                "habit_name_guess": habit_name_guess,
+                "questions": normalized_questions,
+            }
+        )
         
         # Validate that the LLM returned a reasonable habit_name_guess (not too long)
         if quiz_form and quiz_form.habit_name_guess:
@@ -382,7 +448,7 @@ def quiz_form_node(state: HabitState) -> Dict[str, Any]:
                 quiz_form.habit_name_guess = _extract_short_habit_name(habit_description)
                 
     except Exception as e:
-        print(f"[quiz_form_node] LLM call failed: {e}")
+        print(f"[quiz_form_node] LLM call failed/slow ({timeout_s}s budget): {e}")
         # Fallback that uses a SHORT habit label, not the full description
         habit_label = _extract_short_habit_name(habit_description)
         quiz_form = QuizForm(

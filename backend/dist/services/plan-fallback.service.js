@@ -130,7 +130,7 @@ export function buildFallbackPlan(ctx = {}) {
             t("Celebrate completion", "Acknowledge your success.", "Celebration reinforces positive identity and marks this as a significant life achievement.", "identity"),
         ],
     };
-    return { plan_summary, day_tasks };
+    return { plan_summary, day_tasks, source: "fallback" };
 }
 /**
  * Extract fallback context from a parsed quiz_summary object.

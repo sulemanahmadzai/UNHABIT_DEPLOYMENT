@@ -24,6 +24,7 @@ export type DayTask = {
 export interface FallbackPlan {
     plan_summary: string;
     day_tasks: Record<string, DayTask[]>;
+    source?: "fallback";
 }
 interface FallbackContext {
     habit?: string | null | undefined;
